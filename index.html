@@ -27,7 +27,8 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 /* ---------- camera ---------- */
 #cam{background:#000}
-#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+/* 保存される映像と同じ範囲を表示（切り落とさない） */
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transform:scaleX(-1);background:#000}
 #prompter{position:absolute;left:0;right:0;top:0;
   padding:calc(var(--st) + 10px) max(14px,var(--sr)) 0 max(14px,var(--sl));
   height:var(--ph,42%);background:linear-gradient(rgba(0,0,0,var(--pbg,.55)) 75%,rgba(0,0,0,0));
@@ -334,7 +335,8 @@ function finishRec(){
   lastUrl = URL.createObjectURL(lastBlob);
   $('rv').src = lastUrl;
   const sec = (performance.now()-t0)/1000;
-  $('rmeta').textContent = `${fmt(sec)}　/　${(lastBlob.size/1048576).toFixed(1)} MB`;
+  const v = $('video');
+  $('rmeta').textContent = `${fmt(sec)}　/　${v.videoWidth}×${v.videoHeight}　/　${(lastBlob.size/1048576).toFixed(1)} MB`;
   show('review');
 }
 $('recBtn').onclick = () => (rec && rec.state === 'recording') ? stopRec() : startRec();
