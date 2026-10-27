@@ -177,6 +177,11 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
   <div class="speedpad" id="padLine" hidden>
     <button id="lnPrev" aria-label="前の文へ">↑</button>
     <button id="lnNext" aria-label="次の文へ">↓</button>
+    <div id="autoPad" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+      <button id="cpsUp" aria-label="送りを速く">＋</button>
+      <output id="cpsOut" title="1秒あたりの文字数">6.0</output>
+      <button id="cpsDn" aria-label="送りを遅く">−</button>
+    </div>
   </div>
   <div id="rotate" hidden><div><b id="rotT">iPhoneを横向きにしてください</b><span id="rotS">設定で「横型（16:9）」を選んでいます。縦型で撮る場合は、右下の「設定」→「撮影の向き」で切り替えられます。</span></div></div>
   <div id="count" hidden></div>
@@ -206,7 +211,7 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
   <header><span></span><h1>設定</h1><button class="link" id="setDone">完了</button></header>
   <div class="settings">
     <div class="set"><label for="sOrient">撮影の向き</label><select id="sOrient" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="landscape">横型（16:9）</option><option value="portrait">縦型（9:16）</option></select><small>横型のときはiPhoneを横にして撮ります。台本はカメラのある側に寄せて表示されます。</small></div>
-    <div class="set"><label for="sMode">台本の送り方</label><select id="sMode" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="voice">声で自動送り</option><option value="tap">タップで送る</option><option value="scroll">一定速度で流す</option></select><small>声で自動送り：言い終わりが近づくと次の文へ進みます（Safariのみ）。うまく進まないときは、画面のどこかをタップすれば次へ進みます。</small></div>
+    <div class="set"><label for="sMode">台本の送り方</label><select id="sMode" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="auto">話す速さで自動送り</option><option value="voice">声を聞き取って送る（不安定）</option><option value="tap">タップで送る</option><option value="scroll">一定速度で流す</option></select><small>話す速さで自動送り：文字数と話す速さから時間を計って次へ送ります。撮影中に右の＋−で速さを変えられます。どの方式でも、画面をタップすれば次へ、下にスワイプで1つ戻ります。</small></div>
     <div class="set"><label for="sSpeed">流れる速さ</label><output id="oSpeed"></output><input type="range" id="sSpeed" min="0" max="20" step="1"><small>「一定速度で流す」のときだけ使います。0にすると自動では流れません（指でなぞって送ります）。撮影中は右の＋−でも変えられます。</small></div>
     <div class="set"><label for="sPos">台本の位置</label><select id="sPos" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="center">真ん中に大きく</option><option value="cam">カメラ側に寄せる</option></select><small>真ん中：読みやすさ優先。カメラ側：目線をレンズに近づけたいとき（横向きのときに効きます）。</small></div>
     <div class="set"><label for="sFs">文字の大きさ</label><output id="oFs"></output><input type="range" id="sFs" min="24" max="80" step="2"></div>
@@ -262,7 +267,7 @@ const S = {
   cd: store.get('cd', true), guide: store.get('guide', true), mirror: store.get('mirror', false), q: store.get('q', '1080')
 };
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-S.mode = store.get('mode', SR ? 'voice' : 'tap');
+S.mode = store.get('mode2', 'auto');
 S.orient = store.get('orient', 'landscape');
 S.pos = store.get('pos', 'center');
 
@@ -297,6 +302,7 @@ function applyLook(){
   $('spOut').textContent = S.speed;
   $('scroller').hidden = lineMode(); $('lines').hidden = !lineMode();
   $('padScroll').hidden = lineMode(); $('padLine').hidden = !lineMode();
+  $('autoPad').hidden = S.mode !== 'auto'; $('autoPad').style.display = S.mode === 'auto' ? 'flex' : 'none';
   $('pos').hidden = !lineMode();
   renderLines(true);
 }
@@ -357,6 +363,7 @@ function paintCur(now){
 }
 requestAnimationFrame(function loop(now){
   if (S.mode === 'voice' && recogOn){ vadTick(now); watchdog(now); decide(now); paintCur(now); }
+  else if (S.mode === 'auto' && autoOn){ vadTick(now); autoTick(now); }
   requestAnimationFrame(loop);
 });
 function renderLines(jump){
@@ -463,7 +470,7 @@ function timeEst(){
   return u && u.text.length ? lineVoiced * cps / u.text.length : 0;
 }
 function resetLine(){
-  progress = 0; shown = 0; lineVoiced = 0;
+  progress = 0; shown = 0; lineVoiced = 0; lineTime = 0; autoPrev = 0;
   const el = $('track').children[idx]; if (el) el.dataset.painted = '';
 }
 // 自動で次へ。話す速さを学習し、前の文の言い残しが次の文に混ざらないようにする
@@ -559,6 +566,53 @@ function restartRecog(){
   try{ old && old.abort(); }catch(e){}
   setTimeout(beginRecog, 150);
 }
+/* ---- 話す速さで自動送り ---- */
+let autoOn = false, lineTime = 0, autoPrev = 0, voicedTotal = 0;
+let acps = store.get('acps', 6.0);  // 1秒あたりの文字数
+function showCps(){ $('cpsOut').textContent = acps.toFixed(1); }
+function setCps(v){ acps = Math.round(Math.min(14, Math.max(2, v)) * 2) / 2; store.set('acps', acps); showCps(); }
+$('cpsUp').onclick = e => { e.stopPropagation(); setCps(acps + 0.5); };
+$('cpsDn').onclick = e => { e.stopPropagation(); setCps(acps - 0.5); };
+showCps();
+function autoTick(now){
+  const u = units[idx];
+  const dt = autoPrev ? Math.min(0.1, (now - autoPrev) / 1000) : 0; autoPrev = now;
+  if (!u) return;
+  if (!u.text){ if (idx < units.length - 1){ idx++; resetLine(); renderLines(false); } return; }
+  if (voiced) voicedTotal += dt;
+  // 声の大きさが取れているときは、話している間（と息継ぎ0.4秒）だけ時間を進める
+  const vadOK = analyser && voicedTotal > 1.0;
+  const speaking = !vadOK || voiced || now - lastVoice < 400;
+  if (speaking) lineTime += dt;
+  const target = u.text.length / acps + 0.2 + (u.note ? 0.8 : 0);  // ト書き付きの文は間のぶん長めに
+  const r = lineTime / target;
+  // 黄色の色を時間に合わせて進める
+  const el = $('track').children[idx];
+  if (el){
+    const n = Math.round(u.text.length * Math.min(1, r));
+    if (el.dataset.n !== String(n)){
+      el.dataset.n = n;
+      const note = u.note ? `<span class="nt">${esc(u.note)}</span>` : '';
+      el.innerHTML = note + '<span class="done">' + esc(u.text.slice(0, n)) + '</span>' + esc(u.text.slice(n));
+    }
+  }
+  if (idx >= units.length - 1) return;
+  const silent = now - lastVoice;
+  let go2 = false;
+  if (vadOK){
+    if (r >= 0.8 && !voiced && silent > 250 && lineVoiced > 0.3) go2 = true; // 終わり近くで息継ぎ
+    else if (r >= 1.0 && !voiced) go2 = true;
+    else if (r >= 1.4) go2 = true;                                          // 話し続けていても送る
+  } else if (r >= 1.0) go2 = true;
+  if (go2){ idx++; resetLine(); renderLines(false); }
+}
+function startAuto(){
+  if (S.mode !== 'auto') return;
+  startVAD(); voicedTotal = 0; lastVoice = 0; resetLine(); autoOn = true;
+  micState(analyser ? '自動送り' : '自動送り（時間のみ）', '');
+}
+function stopAuto(){ autoOn = false; stopVAD(); }
+
 function startRecog(){
   if (S.mode !== 'voice') return;
   startVAD();
@@ -656,7 +710,7 @@ async function startRec(){
   rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   rec.onstop = finishRec;
   rec.start(1000);
-  startRecog();
+  startRecog(); startAuto();
   t0 = performance.now(); holdUntil = performance.now() + 600; scrolling = true;
   $('recBtn').classList.add('on'); $('recBtn').disabled = false;
   $('timer').hidden = false; $('tt').textContent = '0:00';
@@ -665,7 +719,7 @@ async function startRec(){
 }
 function stopRec(){ if (rec && rec.state !== 'inactive') rec.stop(); }
 function finishRec(){
-  scrolling = false; clearInterval(timerId); stopRecog();
+  scrolling = false; clearInterval(timerId); stopRecog(); stopAuto();
   $('recBtn').classList.remove('on'); $('timer').hidden = true;
   $('toEdit').disabled = $('toSet').disabled = false;
   const type = (rec.mimeType || mime || 'video/mp4').split(';')[0];
@@ -678,7 +732,7 @@ function finishRec(){
   $('rmeta').textContent = `${fmt(sec)}　/　${v.videoWidth}×${v.videoHeight}　/　${(lastBlob.size/1048576).toFixed(1)} MB`;
   show('review');
 }
-$('recBtn').onclick = () => { if (rec && rec.state === 'recording') stopRec(); else { if (S.mode === 'voice') prepAudio(); startRec(); } };
+$('recBtn').onclick = () => { if (rec && rec.state === 'recording') stopRec(); else { if (S.mode === 'voice' || S.mode === 'auto') prepAudio(); startRec(); } };
 
 /* ---- 保存 ---- */
 function fileName(){
@@ -720,7 +774,7 @@ const bind = (id, key, out, unit='') => {
 };
 bind('sSpeed','speed','oSpeed'); bind('sFs','fs','oFs','px'); bind('sPh','ph','oPh','%'); bind('sPos','pos');
 $('sFs').addEventListener('input', () => store.set('fs2', S.fs)); $('sPh').addEventListener('input', () => store.set('ph2', S.ph)); bind('sBg','bg','oBg','%');
-bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q'); bind('sMode','mode');
+bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q'); bind('sMode','mode'); $('sMode').addEventListener('change', () => store.set('mode2', S.mode));
 if (!SR) $('sMode').querySelector('option[value=voice]').textContent = '声で自動送り（このブラウザは非対応）';
 const qh = $('sQ').onchange; $('sQ').onchange = async () => { qh(); try{ await startCamera(); }catch(e){} };
 $('toSet').onclick = () => { $('sSpeed').value = S.speed; $('oSpeed').textContent = S.speed; show('set'); };
