@@ -62,13 +62,13 @@ body.pcenter #script{text-align:center}
 #lines{position:relative;height:100%;overflow:hidden;
   -webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}
 #lines.mirror{transform:scaleX(-1)}
-#track{position:absolute;left:0;right:0;top:0;transition:transform .38s cubic-bezier(.2,.7,.2,1);will-change:transform}
+#track{position:absolute;left:0;right:0;top:0;transition:transform .3s cubic-bezier(.25,.8,.25,1);will-change:transform}
 .u{font-weight:700;line-height:1.42;letter-spacing:.02em;padding:.16em 0;white-space:pre-wrap;
-  text-shadow:0 1px 3px rgba(0,0,0,.85);font-size:calc(var(--fs,30px)*.74);opacity:.32;transition:opacity .3s,color .3s}
-.u.p1{opacity:.28}
-.u.cur{font-size:var(--fs,30px);opacity:1}
-.u.n1{font-size:calc(var(--fs,30px)*.84);opacity:.72}
-.u.n2{opacity:.42}
+  text-shadow:0 1px 3px rgba(0,0,0,.85);font-size:var(--fs,30px);color:#c9cdd4;opacity:.3;transition:opacity .25s,color .25s}
+.u.p1{opacity:.25}
+.u.cur{color:#fff;opacity:1}
+.u.n1{opacity:.62}
+.u.n2{opacity:.38}
 .u .done{color:var(--accent)}
 .u .nt{display:block;color:var(--accent);font-size:.6em;font-weight:600;opacity:.9}
 .u.cur::before{content:"";position:absolute;left:calc(-1 * max(14px,var(--sl)) + 4px);width:4px;height:1.1em;margin-top:.2em;border-radius:2px;background:var(--accent)}
@@ -341,18 +341,31 @@ function norm(s){
   return s.normalize('NFKC').replace(/[\s、。，．,.!！?？「」『』…・ー〜~"'“”‘’()（）\-:：;；]/g, '')
     .replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60)).toLowerCase();
 }
-let progress = 0;
+let progress = 0, shown = 0, rate = 0.25, lastRes = 0, lineVoiceStart = 0;
+function paintCur(){
+  const u = units[idx], el = $('track').children[idx];
+  if (!u || !el || !lineMode()) return;
+  const now = performance.now();
+  // 最後の認識から1.2秒以内なら、話す速さぶん先に進めて表示（最大で4文字先まで）
+  let p = progress;
+  if (recogOn && lastRes && now - lastRes < 1200 && u.text.length){
+    p = Math.min(progress + rate * (now - lastRes) / 1000, progress + 4 / u.text.length, 1);
+  }
+  if (p < shown) p = shown;  // 色は戻さない
+  const n = Math.round(u.text.length * p);
+  if (n === Math.round(u.text.length * shown) && el.dataset.painted) return;
+  shown = p; el.dataset.painted = 1;
+  const note = u.note ? `<span class="nt">${esc(u.note)}</span>` : '';
+  el.innerHTML = note + '<span class="done">' + esc(u.text.slice(0, n)) + '</span>' + esc(u.text.slice(n));
+}
+(function loop(){ if (S.mode === 'voice' && recogOn) paintCur(); requestAnimationFrame(loop); })();
 function renderLines(jump){
   if (!lineMode()) return;
   const track = $('track');
   track.innerHTML = units.map((u, i) => {
     const d = i - idx;
     const cls = d === 0 ? 'cur' : d === -1 ? 'p1' : d === 1 ? 'n1' : d === 2 ? 'n2' : '';
-    let body = esc(u.text);
-    if (d === 0 && progress > 0){
-      const n = Math.round(u.text.length * Math.min(1, progress));
-      body = '<span class="done">' + esc(u.text.slice(0, n)) + '</span>' + esc(u.text.slice(n));
-    }
+    const body = esc(u.text);
     const note = u.note ? `<span class="nt">${esc(u.note)}</span>` : '';
     return `<div class="u ${cls}" style="position:relative" ${Math.abs(d) > 4 ? 'hidden' : ''}>${note}${body}</div>`;
   }).join('');
@@ -369,7 +382,7 @@ function renderLines(jump){
 function go(n){
   const ni = Math.max(0, Math.min(units.length - 1, n));
   if (ni === idx) return;
-  idx = ni; progress = 0; markBaseline(); renderLines(false);
+  idx = ni; progress = 0; shown = 0; lastRes = 0; lineVoiceStart = 0; markBaseline(); renderLines(false);
 }
 $('lnNext').onclick = e => { e.stopPropagation(); go(idx + 1); };
 $('lnPrev').onclick = e => { e.stopPropagation(); go(idx - 1); };
@@ -403,19 +416,26 @@ function evaluate(){
   const byMatch = lcs(said, key) / key.length;           // 文字がどれだけ一致したか
   const byLen = Math.min(1, said.length / key.length) * 0.85; // 漢字・かなの違いで一致しない分を長さで補う
   const p = Math.max(byMatch, byLen);
-  if (p > progress){ progress = p; renderLines(false); }
+  const now = performance.now();
+  if (!lineVoiceStart) lineVoiceStart = now;
+  if (p > progress){ progress = p; }
+  // 話す速さ（1秒あたり何割進むか）を測って、色の先読みに使う
+  const el = (now - lineVoiceStart) / 1000;
+  if (el > 0.4) rate = Math.min(0.9, Math.max(0.08, progress / el));
+  lastRes = now;
   const tail = key.slice(-2);
   const endHit = tail && said.slice(-Math.max(6, tail.length * 3)).includes(tail);
-  if (progress >= 0.92 || (progress >= 0.7 && endHit)) { go(idx + 1); return; }
-  // 6割以上読んで、0.9秒黙ったら次へ（言い終えて間を取った場合）
+  // 言い切ったら次へ（文の最後の言葉が聞こえた／ほぼ全部一致した）
+  if ((progress >= 0.8 && endHit) || progress >= 0.97) { go(idx + 1); return; }
+  // 7割以上読んで、0.7秒黙ったら次へ（言い換えた・認識が合わなかった場合の保険）
   clearTimeout(silenceTimer);
-  if (progress >= 0.6) silenceTimer = setTimeout(() => { if (recogOn && progress >= 0.6) go(idx + 1); }, 900);
+  if (progress >= 0.7) silenceTimer = setTimeout(() => { if (recogOn && progress >= 0.7) go(idx + 1); }, 700);
 }
 function micState(t, cls){ $('mic').hidden = false; $('micT').textContent = t; $('mic').className = cls || ''; }
 function startRecog(){
   if (S.mode !== 'voice') return;
   if (!SR){ micState('音声送り不可（タップで送れます）', 'off'); return; }
-  recogOn = true; finals = ''; interim = ''; baseline = 0; progress = 0;
+  recogOn = true; finals = ''; interim = ''; baseline = 0; progress = 0; shown = 0; lastRes = 0; lineVoiceStart = 0;
   const begin = () => {
     if (!recogOn) return;
     recog = new SR();
@@ -501,7 +521,7 @@ sc.addEventListener('touchmove', () => { holdUntil = performance.now() + 1500; }
 function setSpeed(v){ S.speed = Math.max(0, Math.min(20, v)); store.set('speed', S.speed); applyLook(); }
 $('spUp').onclick = () => setSpeed(S.speed + 1);
 $('spDn').onclick = () => setSpeed(S.speed - 1);
-$('toTop').onclick = () => { sc.scrollTop = 0; acc = 0; idx = 0; progress = 0; markBaseline(); renderLines(true); };
+$('toTop').onclick = () => { sc.scrollTop = 0; acc = 0; idx = 0; progress = 0; shown = 0; markBaseline(); renderLines(true); };
 
 /* ---- 録画 ---- */
 let rec = null, chunks = [], t0 = 0, timerId = 0, lastBlob = null, lastUrl = null, mime = '';
@@ -521,7 +541,7 @@ async function startRec(){
   if (!window.MediaRecorder){ toast('このブラウザは録画に対応していません。iOSを最新にしてください。', 4000); return; }
   $('recBtn').disabled = true;
   sc.scrollTop = 0; acc = 0;
-  idx = 0; progress = 0; renderLines(true);
+  idx = 0; progress = 0; shown = 0; renderLines(true);
   await countdown();
   mime = pickMime();
   chunks = [];
