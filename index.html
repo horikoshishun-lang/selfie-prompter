@@ -62,17 +62,19 @@ body.pcenter #script{text-align:center}
 
 /* ---- 1文ずつ送るモード ---- */
 #lines{position:relative;height:100%;overflow:hidden;
-  -webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}
+  -webkit-mask-image:linear-gradient(#000 90%,transparent);mask-image:linear-gradient(#000 90%,transparent)}
 #lines.mirror{transform:scaleX(-1)}
 #track{position:absolute;left:0;right:0;top:0;transition:transform .3s cubic-bezier(.25,.8,.25,1);will-change:transform}
-.u{font-weight:700;line-height:1.42;letter-spacing:.02em;padding:.16em 0;white-space:pre-wrap;
+.u{font-weight:700;line-height:1.3;letter-spacing:.02em;padding:.1em 0;white-space:pre-wrap;
   text-shadow:0 1px 3px rgba(0,0,0,.85);font-size:var(--fs,30px);color:#c9cdd4;opacity:.3;transition:opacity .25s,color .25s}
 .u.p1{opacity:.25}
 .u.cur{color:#fff;opacity:1}
 .u.n1{opacity:.62}
-.u.n2{opacity:.38}
+.u.n2{opacity:.52}
+.u.n3{opacity:.44}
+.u.n4{opacity:.36}
 .u .done{color:var(--accent)}
-.u .nt{display:block;color:var(--accent);font-size:.6em;font-weight:600;opacity:.9}
+.u .nt{display:block;color:var(--accent);font-size:.55em;line-height:1.2;font-weight:600;opacity:.9}
 .u.cur::before{content:"";position:absolute;left:calc(-1 * max(14px,var(--sl)) + 4px);width:4px;height:1.1em;margin-top:.2em;border-radius:2px;background:var(--accent)}
 #pos{font-variant-numeric:tabular-nums;font-weight:700;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:999px;font-size:13px}
 #mic{font-weight:700;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:999px;font-size:13px;display:flex;align-items:center;gap:6px}
@@ -215,7 +217,7 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
   <header><span></span><h1>設定</h1><button class="link" id="setDone">完了</button></header>
   <div class="settings">
     <div class="set"><label for="sOrient">撮影の向き</label><select id="sOrient" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="landscape">横型（16:9）</option><option value="portrait">縦型（9:16）</option></select><small>横型のときはiPhoneを横にして撮ります。台本はカメラのある側に寄せて表示されます。</small></div>
-    <div class="set"><label for="sMode">台本の送り方</label><select id="sMode" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="auto">話す速さで自動送り</option><option value="voice">声を聞き取って送る（不安定）</option><option value="tap">タップで送る</option><option value="scroll">一定速度で流す</option></select><small>話す速さで自動送り：文字数と話す速さから時間を計って次へ送ります。撮影中に右の＋−で速さを変えられます。どの方式でも、画面をタップすれば次へ、下にスワイプで1つ戻ります。</small></div>
+    <div class="set"><label for="sMode">台本の送り方</label><select id="sMode" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="voice">声を聞き取って送る</option><option value="auto">話す速さで自動送り</option><option value="tap">タップで送る</option><option value="scroll">一定速度で流す</option></select><small>声を聞き取って送る：iPhoneの音声認識で送ります（Safariのみ）。聞き取れない間は、話す速さの見積もりで送ります。話す速さで自動送り：文字数と話す速さだけで送ります。撮影中に右の＋−で速さを変えられます。どの方式でも、画面をタップすれば次へ、下にスワイプで1つ戻ります。</small></div>
     <div class="set"><label for="sSpeed">流れる速さ</label><output id="oSpeed"></output><input type="range" id="sSpeed" min="0" max="20" step="1"><small>「一定速度で流す」のときだけ使います。0にすると自動では流れません（指でなぞって送ります）。撮影中は右の＋−でも変えられます。</small></div>
     <div class="set"><label for="sPos">台本の位置</label><select id="sPos" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="center">真ん中に大きく</option><option value="cam">カメラ側に寄せる</option></select><small>真ん中：読みやすさ優先。カメラ側：目線をレンズに近づけたいとき（横向きのときに効きます）。</small></div>
     <div class="set"><label for="sFs">文字の大きさ</label><output id="oFs"></output><input type="range" id="sFs" min="24" max="80" step="2"></div>
@@ -267,11 +269,11 @@ const SAMPLE = `【サンプル台本です。左下の「台本」から差し�
 よかったら、保存して試してみてください。`;
 
 const S = {
-  speed: store.get('speed', 5), fs: store.get('fs2', 44), ph: store.get('ph2', 62), bg: store.get('bg', 55),
+  speed: store.get('speed', 5), fs: store.get('fs3', 38), ph: store.get('ph3', 86), bg: store.get('bg', 55),
   cd: store.get('cd', true), guide: store.get('guide', true), mirror: store.get('mirror', false), q: store.get('q', '1080')
 };
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-S.mode = store.get('mode2', 'auto');
+S.mode = store.get('mode3', SR ? 'voice' : 'auto');
 S.orient = store.get('orient', 'landscape');
 S.pos = store.get('pos', 'center');
 
@@ -306,7 +308,7 @@ function applyLook(){
   $('spOut').textContent = S.speed;
   $('scroller').hidden = lineMode(); $('lines').hidden = !lineMode();
   $('padScroll').hidden = lineMode(); $('padLine').hidden = !lineMode();
-  $('autoPad').hidden = S.mode !== 'auto'; $('autoPad').style.display = S.mode === 'auto' ? 'flex' : 'none';
+  const ap = S.mode === 'auto' || S.mode === 'voice'; $('autoPad').hidden = !ap; $('autoPad').style.display = ap ? 'flex' : 'none';
   $('pos').hidden = !lineMode();
   renderLines(true);
 }
@@ -366,7 +368,7 @@ function paintCur(now){
   el.innerHTML = note + '<span class="done">' + esc(u.text.slice(0, n)) + '</span>' + esc(u.text.slice(n));
 }
 requestAnimationFrame(function loop(now){
-  if (S.mode === 'voice' && recogOn){ vadTick(now); watchdog(now); decide(now); paintCur(now); }
+  if (S.mode === 'voice' && recogOn){ vadTick(now); watchdog(now); decide(now); voiceFallback(now); paintCur(now); }
   else if (S.mode === 'auto' && autoOn){ vadTick(now); if (paused) autoPrev = now; else autoTick(now); }
   requestAnimationFrame(loop);
 });
@@ -375,16 +377,16 @@ function renderLines(jump){
   const track = $('track');
   track.innerHTML = units.map((u, i) => {
     const d = i - idx;
-    const cls = d === 0 ? 'cur' : d === -1 ? 'p1' : d === 1 ? 'n1' : d === 2 ? 'n2' : '';
+    const cls = d === 0 ? 'cur' : d === -1 ? 'p1' : (d >= 1 && d <= 4) ? 'n' + d : '';
     const body = esc(u.text);
     const note = u.note ? `<span class="nt">${esc(u.note)}</span>` : '';
-    return `<div class="u ${cls}" style="position:relative" ${Math.abs(d) > 4 ? 'hidden' : ''}>${note}${body}</div>`;
+    return `<div class="u ${cls}" style="position:relative" ${(d < -2 || d > 6) ? 'hidden' : ''}>${note}${body}</div>`;
   }).join('');
   // 今の文が上から「1行ぶん」下の位置に来るように送る（前の文が1行見える）
   const cur = track.children[idx];
   if (!cur) return;
   const prev = track.children[idx - 1];
-  const anchor = prev ? Math.min(prev.offsetHeight, S.fs * 1.6) : 0;
+  const anchor = prev ? Math.min(prev.offsetHeight, S.fs * 0.9) : 0;
   if (jump){ track.style.transition = 'none'; }
   track.style.transform = `translateY(${anchor - cur.offsetTop}px)`;
   if (jump){ track.offsetHeight; track.style.transition = ''; }
@@ -410,11 +412,11 @@ $('cam').addEventListener('click', e => {
 let paused = false, pressTimer = 0, pressFired = false;
 function setPaused(v){
   paused = v;
-  if (autoOn) micState(v ? '一時停止中（タップで再開）' : (analyser ? '自動送り' : '自動送り（時間のみ）'), v ? 'off' : '');
+  if (autoOn || recogOn) micState(v ? '一時停止中（タップで再開）' : (recogOn ? '音声送り' : analyser ? '自動送り' : '自動送り（時間のみ）'), v ? 'off' : '');
 }
 $('cam').addEventListener('touchstart', e => {
   pressFired = false; clearTimeout(pressTimer);
-  if (!autoOn || e.target.closest('button, .bottombar, .speedpad')) return;
+  if (!(autoOn || recogOn) || e.target.closest('button, .bottombar, .speedpad')) return;
   pressTimer = setTimeout(() => { pressFired = true; setPaused(true); }, 550);
 }, {passive:true});
 ['touchend','touchmove','touchcancel'].forEach(ev => $('cam').addEventListener(ev, () => clearTimeout(pressTimer), {passive:true}));
@@ -427,7 +429,7 @@ $('cam').addEventListener('touchend', e => {
   if (Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.5 && !e.target.closest('.bottombar, .speedpad')){
     if (dy > 0){
       const u = units[idx], r = u && u.text ? lineTime / (u.text.length / acps + 0.2) : 0;
-      if (S.mode === 'auto' && autoOn && r > 0.25){ resetLine(); renderLines(false); toast('この文の頭から', 900); }
+      if ((autoOn || recogOn) && (r > 0.25 || progress > 0.25)){ resetLine(); markBaseline(); renderLines(false); toast('この文の頭から', 900); }
       else go(idx - 1);
     } else go(idx + 1);
   }
@@ -506,6 +508,7 @@ function resetLine(){
 }
 // 自動で次へ。話す速さを学習し、前の文の言い残しが次の文に混ざらないようにする
 function advance(){
+  if (paused) return;
   const u = units[idx];
   if (u && u.text.length && progress >= 0.75 && lineVoiced > 0.5){
     cps = Math.min(14, Math.max(3, cps * 0.6 + (u.text.length / lineVoiced) * 0.4));
@@ -525,7 +528,26 @@ function decide(now){
   if (silent > 1100 && (progress >= 0.4 || t >= 0.6)) return advance();
 }
 // 話しているのに認識が返ってこない → 認識を立て直す
+// 認識が返ってこない間の保険：話す速さの見積もりで送る（止まりっぱなしにしない）
+let vfPrev = 0;
+function voiceFallback(now){
+  const dt = vfPrev ? Math.min(0.1, (now - vfPrev) / 1000) : 0; vfPrev = now;
+  const u = units[idx];
+  if (!u) return;
+  if (!u.text){ if (idx < units.length - 1) advance(); return; }
+  if (paused) return;
+  const vadOK = analyser && !vadDead && voicedTotal > 1.0;
+  if (voiced) voicedTotal += dt;
+  const speaking = !vadOK || voiced || now - lastVoice < 400 || now - lastVoice > 2500;
+  if (speaking) lineTime += dt;
+  const target = u.text.length / acps + 0.2 + (u.note ? 0.8 : 0);
+  const r = lineTime / target;
+  const quiet = now - lastRes > 1500;   // 認識が1.5秒以上返ってきていない
+  if ((r >= 1.25 && quiet && !voiced) || (r >= 1.6 && quiet) || r >= 2.2) advance();
+}
 function watchdog(now){
+  // 声の大きさが取れないときも、認識が4秒返ってこなければ立て直す
+  if (recogOn && SR && lastRes && now - lastRes > 4000 && (!analyser || vadDead)){ lastRes = now; restartRecog(); }
   if (voicedSinceRes > 1.8){ voicedSinceRes = 0; restartRecog(); }
 }
 function evaluate(){
@@ -649,7 +671,7 @@ function stopAuto(){ autoOn = false; paused = false; stopVAD(); }
 
 function startRecog(){
   if (S.mode !== 'voice') return;
-  startVAD();
+  startVAD(); lastAlive = performance.now(); vadDead = false; voicedTotal = 0; vfPrev = 0; lastRes = performance.now();
   finals = ''; interim = ''; baseline = 0; resetLine(); voicedSinceRes = 0; lastVoice = 0;
   if (!SR && !analyser){ micState('音声送り不可（タップで送れます）', 'off'); return; }
   recogOn = true;
@@ -657,7 +679,7 @@ function startRecog(){
   if (SR) beginRecog();
 }
 function stopRecog(){
-  recogOn = false; recogGen++;
+  recogOn = false; paused = false; recogGen++;
   try{ recog && recog.abort(); }catch(e){}
   recog = null; stopVAD(); $('mic').hidden = true;
 }
@@ -807,8 +829,8 @@ const bind = (id, key, out, unit='') => {
   el.oninput = el.onchange = () => { S[key] = el.tagName==='SELECT' ? el.value : +el.value; store.set(key, S[key]); upd(); applyLook(); };
 };
 bind('sSpeed','speed','oSpeed'); bind('sFs','fs','oFs','px'); bind('sPh','ph','oPh','%'); bind('sPos','pos');
-$('sFs').addEventListener('input', () => store.set('fs2', S.fs)); $('sPh').addEventListener('input', () => store.set('ph2', S.ph)); bind('sBg','bg','oBg','%');
-bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q'); bind('sMode','mode'); $('sMode').addEventListener('change', () => store.set('mode2', S.mode));
+$('sFs').addEventListener('input', () => store.set('fs3', S.fs)); $('sPh').addEventListener('input', () => store.set('ph3', S.ph)); bind('sBg','bg','oBg','%');
+bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q'); bind('sMode','mode'); $('sMode').addEventListener('change', () => store.set('mode3', S.mode));
 if (!SR) $('sMode').querySelector('option[value=voice]').textContent = '声で自動送り（このブラウザは非対応）';
 const qh = $('sQ').onchange; $('sQ').onchange = async () => { qh(); try{ await startCamera(); }catch(e){} };
 $('toSet').onclick = () => { $('sSpeed').value = S.speed; $('oSpeed').textContent = S.speed; show('set'); };
