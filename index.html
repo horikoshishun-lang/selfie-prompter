@@ -44,6 +44,26 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   height:0;border-top:2px solid rgba(255,214,10,.0);pointer-events:none}
 #guide.on{border-top-color:rgba(255,214,10,.55)}
 
+/* ---- 1文ずつ送るモード ---- */
+#lines{position:relative;height:100%;overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}
+#lines.mirror{transform:scaleX(-1)}
+#track{position:absolute;left:0;right:0;top:0;transition:transform .38s cubic-bezier(.2,.7,.2,1);will-change:transform}
+.u{font-weight:700;line-height:1.42;letter-spacing:.02em;padding:.16em 0;white-space:pre-wrap;
+  text-shadow:0 1px 3px rgba(0,0,0,.85);font-size:calc(var(--fs,30px)*.74);opacity:.32;transition:opacity .3s,color .3s}
+.u.p1{opacity:.28}
+.u.cur{font-size:var(--fs,30px);opacity:1}
+.u.n1{font-size:calc(var(--fs,30px)*.84);opacity:.72}
+.u.n2{opacity:.42}
+.u .done{color:var(--accent)}
+.u .nt{display:block;color:var(--accent);font-size:.6em;font-weight:600;opacity:.9}
+.u.cur::before{content:"";position:absolute;left:calc(-1 * max(14px,var(--sl)) + 4px);width:4px;height:1.1em;margin-top:.2em;border-radius:2px;background:var(--accent)}
+#pos{font-variant-numeric:tabular-nums;font-weight:700;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:999px;font-size:13px}
+#mic{font-weight:700;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:999px;font-size:13px;display:flex;align-items:center;gap:6px}
+#mic i{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+#mic.off i{background:#888}
+#mic.hear i{box-shadow:0 0 0 4px rgba(52,199,89,.35)}
+
 .topbar{position:absolute;right:max(12px,var(--sr));top:calc(var(--st) + 8px);display:flex;gap:8px;z-index:3}
 #timer{font-variant-numeric:tabular-nums;font-weight:700;background:rgba(0,0,0,.6);
   padding:4px 10px;border-radius:999px;font-size:15px;display:flex;align-items:center;gap:6px}
@@ -125,13 +145,24 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
 <!-- 撮影画面 -->
 <section id="cam" class="screen" hidden>
   <video id="video" playsinline muted autoplay></video>
-  <div id="prompter"><div id="scroller"><div id="script"></div></div></div>
+  <div id="prompter">
+    <div id="scroller"><div id="script"></div></div>
+    <div id="lines" hidden><div id="track"></div></div>
+  </div>
   <div id="guide"></div>
-  <div class="topbar"><div id="timer" hidden><i></i><span id="tt">0:00</span></div></div>
-  <div class="speedpad">
+  <div class="topbar">
+    <div id="mic" class="off" hidden><i></i><span id="micT">音声送り</span></div>
+    <div id="pos" hidden></div>
+    <div id="timer" hidden><i></i><span id="tt">0:00</span></div>
+  </div>
+  <div class="speedpad" id="padScroll">
     <button id="spUp" aria-label="速く">＋</button>
     <output id="spOut">5</output>
     <button id="spDn" aria-label="遅く">−</button>
+  </div>
+  <div class="speedpad" id="padLine" hidden>
+    <button id="lnPrev" aria-label="前の文へ">↑</button>
+    <button id="lnNext" aria-label="次の文へ">↓</button>
   </div>
   <div id="count" hidden></div>
   <div id="msg" hidden></div>
@@ -159,7 +190,8 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
 <section id="set" class="screen sheet" hidden>
   <header><span></span><h1>設定</h1><button class="link" id="setDone">完了</button></header>
   <div class="settings">
-    <div class="set"><label for="sSpeed">流れる速さ</label><output id="oSpeed"></output><input type="range" id="sSpeed" min="0" max="20" step="1"><small>0にすると自動では流れません（指でなぞって送ります）。撮影中は右の＋−でも変えられます。</small></div>
+    <div class="set"><label for="sMode">台本の送り方</label><select id="sMode" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="voice">声で自動送り</option><option value="tap">タップで送る</option><option value="scroll">一定速度で流す</option></select><small>声で自動送り：言い終わりが近づくと次の文へ進みます（Safariのみ）。うまく進まないときは、画面のどこかをタップすれば次へ進みます。</small></div>
+    <div class="set"><label for="sSpeed">流れる速さ</label><output id="oSpeed"></output><input type="range" id="sSpeed" min="0" max="20" step="1"><small>「一定速度で流す」のときだけ使います。0にすると自動では流れません（指でなぞって送ります）。撮影中は右の＋−でも変えられます。</small></div>
     <div class="set"><label for="sFs">文字の大きさ</label><output id="oFs"></output><input type="range" id="sFs" min="18" max="56" step="2"></div>
     <div class="set"><label for="sPh">台本エリアの高さ</label><output id="oPh"></output><input type="range" id="sPh" min="20" max="70" step="2"><small>低くするほど、読んでいる文字がカメラ（画面上端）に近くなり、目線が自然になります。</small></div>
     <div class="set"><label for="sBg">台本の背景の濃さ</label><output id="oBg"></output><input type="range" id="sBg" min="0" max="90" step="5"></div>
@@ -212,6 +244,8 @@ const S = {
   speed: store.get('speed', 5), fs: store.get('fs', 30), ph: store.get('ph', 40), bg: store.get('bg', 55),
   cd: store.get('cd', true), guide: store.get('guide', true), mirror: store.get('mirror', false), q: store.get('q', '1080')
 };
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+S.mode = store.get('mode', SR ? 'voice' : 'tap');
 
 /* ---- 台本: URLの #t=... で受け取れる（Claudeから台本付きリンクを送る用） ---- */
 function fromHash(){
@@ -228,15 +262,171 @@ let text = fromHash() ?? store.get('text', SAMPLE);
 if (location.hash.startsWith('#t=')) { store.set('text', text); history.replaceState(null,'',location.pathname); }
 
 function esc(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+const NOTE_RE = /(【[^】]*】|（[^）]*）|\([^)]*\))/g;
 function renderScript(){
-  $('script').innerHTML = esc(text).replace(/(【[^】]*】|（[^）]*）|\([^)]*\))/g, '<span class="note">$1</span>');
+  $('script').innerHTML = esc(text).replace(NOTE_RE, '<span class="note">$1</span>');
+  buildUnits(); renderLines(true);
 }
+const lineMode = () => S.mode !== 'scroll';
 function applyLook(){
   const r = document.documentElement.style;
   r.setProperty('--fs', S.fs+'px'); r.setProperty('--ph', S.ph+'%'); r.setProperty('--pbg', S.bg/100);
   $('script').classList.toggle('mirror', S.mirror);
-  $('guide').classList.toggle('on', S.guide);
+  $('lines').classList.toggle('mirror', S.mirror);
+  $('guide').classList.toggle('on', S.guide && !lineMode());
   $('spOut').textContent = S.speed;
+  $('scroller').hidden = lineMode(); $('lines').hidden = !lineMode();
+  $('padScroll').hidden = lineMode(); $('padLine').hidden = !lineMode();
+  $('pos').hidden = !lineMode();
+  renderLines(true);
+}
+
+/* ======== 1文ずつ送る ======== */
+// 台本を「読む単位」に分ける：1行ずつ。長い行は句点で区切る。ト書きだけの行は次の文に添える
+let units = [], idx = 0;
+function buildUnits(){
+  units = []; let pendingNote = '';
+  const MAX = 34;
+  for (const raw of text.split(/\n/)){
+    const line = raw.trim();
+    if (!line) continue;
+    const spoken = line.replace(NOTE_RE, '').trim();
+    if (!spoken){ pendingNote += (pendingNote ? ' ' : '') + line; continue; }
+    // 長い行は「。！？」の後で区切る
+    let parts = [line];
+    if (spoken.length > MAX){
+      parts = line.split(/(?<=[。！？!?])/).map(s => s.trim()).filter(Boolean);
+      // さらに長いものは「、」で区切る
+      parts = parts.flatMap(p => p.replace(NOTE_RE,'').length > MAX*1.4 ? splitComma(p, MAX) : [p]);
+    }
+    parts.forEach((p, i) => {
+      units.push({ note: i === 0 ? pendingNote : '', text: p.replace(NOTE_RE, '').trim(), key: norm(p.replace(NOTE_RE, '')) });
+    });
+    pendingNote = '';
+  }
+  if (pendingNote) units.push({ note: pendingNote, text: '', key: '' });
+  if (!units.length) units.push({ note: '', text: '（台本が空です）', key: '' });
+  idx = Math.min(idx, units.length - 1);
+}
+function splitComma(p, max){
+  const out = []; let cur = '';
+  for (const seg of p.split(/(?<=、)/)){
+    if ((cur + seg).length > max && cur){ out.push(cur); cur = seg; } else cur += seg;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+// 照合用：記号と空白を消し、カタカナはひらがなに
+function norm(s){
+  return s.normalize('NFKC').replace(/[\s、。，．,.!！?？「」『』…・ー〜~"'“”‘’()（）\-:：;；]/g, '')
+    .replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60)).toLowerCase();
+}
+let progress = 0;
+function renderLines(jump){
+  if (!lineMode()) return;
+  const track = $('track');
+  track.innerHTML = units.map((u, i) => {
+    const d = i - idx;
+    const cls = d === 0 ? 'cur' : d === -1 ? 'p1' : d === 1 ? 'n1' : d === 2 ? 'n2' : '';
+    let body = esc(u.text);
+    if (d === 0 && progress > 0){
+      const n = Math.round(u.text.length * Math.min(1, progress));
+      body = '<span class="done">' + esc(u.text.slice(0, n)) + '</span>' + esc(u.text.slice(n));
+    }
+    const note = u.note ? `<span class="nt">${esc(u.note)}</span>` : '';
+    return `<div class="u ${cls}" style="position:relative" ${Math.abs(d) > 4 ? 'hidden' : ''}>${note}${body}</div>`;
+  }).join('');
+  // 今の文が上から「1行ぶん」下の位置に来るように送る（前の文が1行見える）
+  const cur = track.children[idx];
+  if (!cur) return;
+  const prev = track.children[idx - 1];
+  const anchor = prev ? Math.min(prev.offsetHeight, S.fs * 1.6) : 0;
+  if (jump){ track.style.transition = 'none'; }
+  track.style.transform = `translateY(${anchor - cur.offsetTop}px)`;
+  if (jump){ track.offsetHeight; track.style.transition = ''; }
+  $('pos').textContent = `${idx + 1} / ${units.length}`;
+}
+function go(n){
+  const ni = Math.max(0, Math.min(units.length - 1, n));
+  if (ni === idx) return;
+  idx = ni; progress = 0; markBaseline(); renderLines(false);
+}
+$('lnNext').onclick = e => { e.stopPropagation(); go(idx + 1); };
+$('lnPrev').onclick = e => { e.stopPropagation(); go(idx - 1); };
+// 画面のボタン以外をタップ → 次の文へ
+$('cam').addEventListener('click', e => {
+  if (!lineMode() || $('cam').hidden) return;
+  if (e.target.closest('button, .bottombar, .speedpad, .topbar')) return;
+  go(idx + 1);
+});
+
+/* ---- 声で送る ---- */
+let recog = null, recogOn = false, finals = '', interim = '', baseline = 0, lastHeard = 0, silenceTimer = 0;
+const heard = () => finals + interim;
+function markBaseline(){ baseline = norm(heard()).length; }
+function lcs(a, b){ // 最長共通部分列の長さ
+  if (!a || !b) return 0;
+  let prev = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++){
+    const cur = [0];
+    for (let j = 1; j <= b.length; j++) cur[j] = a[i-1] === b[j-1] ? prev[j-1] + 1 : Math.max(prev[j], cur[j-1]);
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function evaluate(){
+  const u = units[idx];
+  if (!u || !u.key){ return; }
+  const said = norm(heard()).slice(baseline);
+  if (!said) return;
+  const key = u.key;
+  const byMatch = lcs(said, key) / key.length;           // 文字がどれだけ一致したか
+  const byLen = Math.min(1, said.length / key.length) * 0.85; // 漢字・かなの違いで一致しない分を長さで補う
+  const p = Math.max(byMatch, byLen);
+  if (p > progress){ progress = p; renderLines(false); }
+  const tail = key.slice(-2);
+  const endHit = tail && said.slice(-Math.max(6, tail.length * 3)).includes(tail);
+  if (progress >= 0.92 || (progress >= 0.7 && endHit)) { go(idx + 1); return; }
+  // 6割以上読んで、0.9秒黙ったら次へ（言い終えて間を取った場合）
+  clearTimeout(silenceTimer);
+  if (progress >= 0.6) silenceTimer = setTimeout(() => { if (recogOn && progress >= 0.6) go(idx + 1); }, 900);
+}
+function micState(t, cls){ $('mic').hidden = false; $('micT').textContent = t; $('mic').className = cls || ''; }
+function startRecog(){
+  if (S.mode !== 'voice') return;
+  if (!SR){ micState('音声送り不可（タップで送れます）', 'off'); return; }
+  recogOn = true; finals = ''; interim = ''; baseline = 0; progress = 0;
+  const begin = () => {
+    if (!recogOn) return;
+    recog = new SR();
+    recog.lang = 'ja-JP'; recog.continuous = true; recog.interimResults = true; recog.maxAlternatives = 1;
+    const finalsBefore = finals;
+    recog.onresult = ev => {
+      // 毎回、このセッションで聞き取った全文を組み立て直す（重複を防ぐ）
+      let fin = '', im = '';
+      for (let i = 0; i < ev.results.length; i++){
+        const r = ev.results[i];
+        if (r.isFinal) fin += r[0].transcript; else im += r[0].transcript;
+      }
+      interim = im; finals = finalsBefore + fin;
+      lastHeard = performance.now();
+      $('mic').classList.add('hear'); clearTimeout(micState._t); micState._t = setTimeout(() => $('mic').classList.remove('hear'), 400);
+      evaluate();
+    };
+    recog.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
+        recogOn = false; micState('音声送りが許可されていません（タップで送れます）', 'off');
+      }
+    };
+    recog.onend = () => { finals = finals + interim; interim = ''; if (recogOn) setTimeout(begin, 150); };
+    try{ recog.start(); micState('音声送り', ''); }catch(e){ setTimeout(begin, 400); }
+  };
+  begin();
+}
+function stopRecog(){
+  recogOn = false; clearTimeout(silenceTimer);
+  try{ recog && recog.stop(); }catch(e){}
+  recog = null; $('mic').hidden = true;
 }
 
 /* ---- カメラ ---- */
@@ -255,7 +445,7 @@ let wake = null;
 async function keepAwake(){ try{ wake = await navigator.wakeLock?.request('screen'); }catch(e){} }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('cam').hidden) keepAwake(); });
 
-function show(id){ ['start','cam','edit','set','review'].forEach(s => $(s).hidden = (s !== id)); }
+function show(id){ ['start','cam','edit','set','review'].forEach(s => $(s).hidden = (s !== id)); if (id === 'cam') requestAnimationFrame(() => renderLines(true)); }
 function toast(t, ms=2500){ const m=$('msg'); m.textContent=t; m.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>m.hidden=true, ms); }
 
 $('startBtn').onclick = async () => {
@@ -275,7 +465,7 @@ const sc = $('scroller');
 let scrolling = false, lastT = 0, acc = 0, holdUntil = 0;
 function pxPerSec(){ return S.speed * S.fs * 0.11; } // 文字サイズに比例
 function tick(t){
-  if (scrolling){
+  if (scrolling && !lineMode()){
     const dt = lastT ? (t - lastT)/1000 : 0;
     if (t > holdUntil){ acc += pxPerSec()*dt; const whole = Math.floor(acc); if (whole){ sc.scrollTop += whole; acc -= whole; } }
   }
@@ -289,7 +479,7 @@ sc.addEventListener('touchmove', () => { holdUntil = performance.now() + 1500; }
 function setSpeed(v){ S.speed = Math.max(0, Math.min(20, v)); store.set('speed', S.speed); applyLook(); }
 $('spUp').onclick = () => setSpeed(S.speed + 1);
 $('spDn').onclick = () => setSpeed(S.speed - 1);
-$('toTop').onclick = () => { sc.scrollTop = 0; acc = 0; };
+$('toTop').onclick = () => { sc.scrollTop = 0; acc = 0; idx = 0; progress = 0; markBaseline(); renderLines(true); };
 
 /* ---- 録画 ---- */
 let rec = null, chunks = [], t0 = 0, timerId = 0, lastBlob = null, lastUrl = null, mime = '';
@@ -309,6 +499,7 @@ async function startRec(){
   if (!window.MediaRecorder){ toast('このブラウザは録画に対応していません。iOSを最新にしてください。', 4000); return; }
   $('recBtn').disabled = true;
   sc.scrollTop = 0; acc = 0;
+  idx = 0; progress = 0; renderLines(true);
   await countdown();
   mime = pickMime();
   chunks = [];
@@ -318,6 +509,7 @@ async function startRec(){
   rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   rec.onstop = finishRec;
   rec.start(1000);
+  startRecog();
   t0 = performance.now(); holdUntil = performance.now() + 600; scrolling = true;
   $('recBtn').classList.add('on'); $('recBtn').disabled = false;
   $('timer').hidden = false; $('tt').textContent = '0:00';
@@ -326,7 +518,7 @@ async function startRec(){
 }
 function stopRec(){ if (rec && rec.state !== 'inactive') rec.stop(); }
 function finishRec(){
-  scrolling = false; clearInterval(timerId);
+  scrolling = false; clearInterval(timerId); stopRecog();
   $('recBtn').classList.remove('on'); $('timer').hidden = true;
   $('toEdit').disabled = $('toSet').disabled = false;
   const type = (rec.mimeType || mime || 'video/mp4').split(';')[0];
@@ -377,11 +569,12 @@ const bind = (id, key, out, unit='') => {
   el.value = S[key];
   const upd = () => { if (out) $(out).textContent = el.value + unit; };
   upd();
-  el.oninput = () => { S[key] = el.tagName==='SELECT' ? el.value : +el.value; store.set(key, S[key]); upd(); applyLook(); };
+  el.oninput = el.onchange = () => { S[key] = el.tagName==='SELECT' ? el.value : +el.value; store.set(key, S[key]); upd(); applyLook(); };
 };
 bind('sSpeed','speed','oSpeed'); bind('sFs','fs','oFs','px'); bind('sPh','ph','oPh','%'); bind('sBg','bg','oBg','%');
-bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q');
-$('sQ').onchange = async () => { try{ await startCamera(); }catch(e){} };
+bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q'); bind('sMode','mode');
+if (!SR) $('sMode').querySelector('option[value=voice]').textContent = '声で自動送り（このブラウザは非対応）';
+const qh = $('sQ').onchange; $('sQ').onchange = async () => { qh(); try{ await startCamera(); }catch(e){} };
 $('toSet').onclick = () => { $('sSpeed').value = S.speed; $('oSpeed').textContent = S.speed; show('set'); };
 $('setDone').onclick = () => show('cam');
 
