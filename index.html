@@ -341,16 +341,13 @@ function norm(s){
   return s.normalize('NFKC').replace(/[\s、。，．,.!！?？「」『』…・ー〜~"'“”‘’()（）\-:：;；]/g, '')
     .replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60)).toLowerCase();
 }
-let progress = 0, shown = 0, rate = 0.25, lastRes = 0, lineVoiceStart = 0;
-function paintCur(){
+let progress = 0, shown = 0;
+function paintCur(now){
   const u = units[idx], el = $('track').children[idx];
-  if (!u || !el || !lineMode()) return;
-  const now = performance.now();
-  // 最後の認識から1.2秒以内なら、話す速さぶん先に進めて表示（最大で4文字先まで）
+  if (!u || !el || !lineMode() || !u.text) return;
+  // 認識の結果（遅れて届く）と、話した時間からの見積もり（遅れなし）の大きい方で色を進める
   let p = progress;
-  if (recogOn && lastRes && now - lastRes < 1200 && u.text.length){
-    p = Math.min(progress + rate * (now - lastRes) / 1000, progress + 4 / u.text.length, 1);
-  }
+  if (now - lastVoice < 700) p = Math.max(p, Math.min(timeEst(), progress + 0.4, 0.95));
   if (p < shown) p = shown;  // 色は戻さない
   const n = Math.round(u.text.length * p);
   if (n === Math.round(u.text.length * shown) && el.dataset.painted) return;
@@ -358,7 +355,10 @@ function paintCur(){
   const note = u.note ? `<span class="nt">${esc(u.note)}</span>` : '';
   el.innerHTML = note + '<span class="done">' + esc(u.text.slice(0, n)) + '</span>' + esc(u.text.slice(n));
 }
-requestAnimationFrame(function loop(){ if (S.mode === 'voice' && recogOn) paintCur(); requestAnimationFrame(loop); });
+requestAnimationFrame(function loop(now){
+  if (S.mode === 'voice' && recogOn){ vadTick(now); watchdog(now); decide(now); paintCur(now); }
+  requestAnimationFrame(loop);
+});
 function renderLines(jump){
   if (!lineMode()) return;
   const track = $('track');
@@ -382,7 +382,7 @@ function renderLines(jump){
 function go(n){
   const ni = Math.max(0, Math.min(units.length - 1, n));
   if (ni === idx) return;
-  idx = ni; progress = 0; shown = 0; lastRes = 0; lineVoiceStart = 0; markBaseline(); renderLines(false);
+  idx = ni; resetLine(); markBaseline(); renderLines(false);
 }
 $('lnNext').onclick = e => { e.stopPropagation(); go(idx + 1); };
 $('lnPrev').onclick = e => { e.stopPropagation(); go(idx - 1); };
@@ -393,8 +393,25 @@ $('cam').addEventListener('click', e => {
   go(idx + 1);
 });
 
-/* ---- 声で送る ---- */
-let recog = null, recogOn = false, finals = '', interim = '', baseline = 0, lastHeard = 0, silenceTimer = 0;
+// 下にスワイプ → 1つ戻る／上にスワイプ → 1つ進む
+let tsY = null, tsX = null;
+$('cam').addEventListener('touchstart', e => { const t = e.touches[0]; tsY = t.clientY; tsX = t.clientX; }, {passive:true});
+$('cam').addEventListener('touchend', e => {
+  if (tsY === null || !lineMode()) return;
+  const t = e.changedTouches[0], dy = t.clientY - tsY, dx = t.clientX - tsX; tsY = null;
+  if (Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.5 && !e.target.closest('.bottombar, .speedpad')){
+    go(dy > 0 ? idx - 1 : idx + 1);
+  }
+}, {passive:true});
+// Bluetoothのページめくりリモコン・キーボード
+document.addEventListener('keydown', e => {
+  if ($('cam').hidden || !lineMode()) return;
+  if (['ArrowRight','ArrowDown','PageDown',' ','Enter'].includes(e.key)){ e.preventDefault(); go(idx + 1); }
+  else if (['ArrowLeft','ArrowUp','PageUp','Backspace'].includes(e.key)){ e.preventDefault(); go(idx - 1); }
+});
+
+/* ---- 声で送る（音声認識＋声の大きさ） ---- */
+let recog = null, recogOn = false, recogGen = 0, finals = '', interim = '', baseline = 0, lastRes = 0;
 const heard = () => finals + interim;
 function markBaseline(){ baseline = norm(heard()).length; }
 function lcs(a, b){ // 最長共通部分列の長さ
@@ -407,66 +424,154 @@ function lcs(a, b){ // 最長共通部分列の長さ
   }
   return prev[b.length];
 }
+
+// 声の大きさで「話している／黙った」を遅れなく判定する
+let actx = null, analyser = null, abuf = null, vsrc = null;
+let noise = 0.004, voiced = false, lastVoice = 0, vadPrev = 0, lineVoiced = 0, voicedSinceRes = 0;
+let cps = store.get('cps', 6.5);  // 1秒に話す文字数（文ごとに学習）
+function prepAudio(){ // 録画ボタンのタップの中で呼ぶ（iPhoneの決まり）
+  try{
+    if (!actx){ const AC = window.AudioContext || window.webkitAudioContext; if (AC) actx = new AC(); }
+    actx && actx.resume && actx.resume();
+  }catch(e){ actx = null; }
+}
+function startVAD(){
+  analyser = null;
+  if (!actx || !stream || !stream.getAudioTracks().length) return;
+  try{
+    vsrc = actx.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+    analyser = actx.createAnalyser(); analyser.fftSize = 1024; vsrc.connect(analyser);
+    abuf = new Float32Array(analyser.fftSize);
+  }catch(e){ analyser = null; }
+}
+function stopVAD(){ try{ vsrc && vsrc.disconnect(); }catch(e){} vsrc = null; analyser = null; }
+function vadTick(now){
+  const dt = vadPrev ? Math.min(0.1, (now - vadPrev) / 1000) : 0; vadPrev = now;
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(abuf);
+  let sum = 0; for (let i = 0; i < abuf.length; i++) sum += abuf[i] * abuf[i];
+  const rms = Math.sqrt(sum / abuf.length);
+  if (!voiced) noise = noise * 0.985 + Math.min(rms, 0.05) * 0.015; // 黙っている間に周りの音の大きさを覚える
+  const th = Math.max(noise * 2.8, 0.008);
+  if (rms > th){ voiced = true; lastVoice = now; }
+  else if (voiced && now - lastVoice > 160) voiced = false;
+  if (voiced){ lineVoiced += dt; voicedSinceRes += dt; }
+  $('mic').classList.toggle('hear', voiced);
+}
+function timeEst(){
+  const u = units[idx];
+  return u && u.text.length ? lineVoiced * cps / u.text.length : 0;
+}
+function resetLine(){
+  progress = 0; shown = 0; lineVoiced = 0;
+  const el = $('track').children[idx]; if (el) el.dataset.painted = '';
+}
+// 自動で次へ。話す速さを学習し、前の文の言い残しが次の文に混ざらないようにする
+function advance(){
+  const u = units[idx];
+  if (u && u.text.length && progress >= 0.75 && lineVoiced > 0.5){
+    cps = Math.min(14, Math.max(3, cps * 0.6 + (u.text.length / lineVoiced) * 0.4));
+    store.set('cps', cps);
+  }
+  if (idx >= units.length - 1) return;
+  const nb = Math.max(norm(heard()).length, baseline + (u ? u.key.length : 0));
+  idx++; resetLine(); baseline = nb; renderLines(false);
+}
+// 息継ぎ（黙った瞬間）で送るかを判断
+function decide(now){
+  const u = units[idx];
+  if (!u || !u.text || !analyser) return;
+  if (voiced || lineVoiced < 0.35) return;
+  const silent = now - lastVoice, t = timeEst();
+  if (silent > 280 && (progress >= 0.65 || t >= 0.9)) return advance();
+  if (silent > 1100 && (progress >= 0.4 || t >= 0.6)) return advance();
+}
+// 話しているのに認識が返ってこない → 認識を立て直す
+function watchdog(now){
+  if (voicedSinceRes > 1.8){ voicedSinceRes = 0; restartRecog(); }
+}
 function evaluate(){
   const u = units[idx];
-  if (!u || !u.key){ return; }
-  const said = norm(heard()).slice(baseline);
+  if (!u || !u.key) return;
+  let said = norm(heard()).slice(baseline);
   if (!said) return;
   const key = u.key;
-  const byMatch = lcs(said, key) / key.length;           // 文字がどれだけ一致したか
-  const byLen = Math.min(1, said.length / key.length) * 0.85; // 漢字・かなの違いで一致しない分を長さで補う
-  const p = Math.max(byMatch, byLen);
-  const now = performance.now();
-  if (!lineVoiceStart) lineVoiceStart = now;
-  if (p > progress){ progress = p; }
-  // 話す速さ（1秒あたり何割進むか）を測って、色の先読みに使う
-  const el = (now - lineVoiceStart) / 1000;
-  if (el > 0.4) rate = Math.min(0.9, Math.max(0.08, progress / el));
-  lastRes = now;
+  // 言い直し：この文の冒頭がもう一度聞こえたら、文の最初からやり直す
+  const pre = key.slice(0, Math.min(4, key.length));
+  if (pre.length >= 3){
+    const first = said.indexOf(pre);
+    const second = first >= 0 ? said.indexOf(pre, first + pre.length) : -1;
+    if (second > 0){ baseline += second; resetLine(); said = said.slice(second); }
+    // 前の文に戻って読み直した → 1つ戻る
+    const pu = units[idx - 1];
+    if (pu && pu.key.length >= 6){
+      const ppre = pu.key.slice(0, 4), pos = said.indexOf(ppre);
+      if (pos >= 0 && (first < 0 || pos > first) && said.length - pos <= pu.key.length * 1.5){
+        baseline += pos; idx--; resetLine(); renderLines(false); return;
+      }
+    }
+  }
+  const byMatch = lcs(said, key) / key.length;                 // 文字がどれだけ一致したか
+  const byLen = Math.min(1, said.length / key.length) * 0.85;  // 漢字・かなの違いを長さで補う
+  progress = Math.max(progress, byMatch, byLen);
   const tail = key.slice(-2);
   const endHit = tail && said.slice(-Math.max(6, tail.length * 3)).includes(tail);
-  // 言い切ったら次へ（文の最後の言葉が聞こえた／ほぼ全部一致した）
-  if ((progress >= 0.8 && endHit) || progress >= 0.97) { go(idx + 1); return; }
-  // 7割以上読んで、0.7秒黙ったら次へ（言い換えた・認識が合わなかった場合の保険）
-  clearTimeout(silenceTimer);
-  if (progress >= 0.7) silenceTimer = setTimeout(() => { if (recogOn && progress >= 0.7) go(idx + 1); }, 700);
+  // 言い切った（文の最後の言葉が聞こえた／ほぼ全部一致）
+  if ((progress >= 0.8 && endHit) || progress >= 0.97) advance();
 }
 function micState(t, cls){ $('mic').hidden = false; $('micT').textContent = t; $('mic').className = cls || ''; }
+function beginRecog(){
+  if (!recogOn) return;
+  const gen = ++recogGen;
+  const r = new SR();
+  r.lang = 'ja-JP'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  const finalsBefore = finals;
+  r.onresult = ev => {
+    if (gen !== recogGen) return;
+    let fin = '', im = '';
+    for (let i = 0; i < ev.results.length; i++){
+      const x = ev.results[i];
+      if (x.isFinal) fin += x[0].transcript; else im += x[0].transcript;
+    }
+    interim = im; finals = finalsBefore + fin;
+    lastRes = performance.now(); voicedSinceRes = 0;
+    evaluate();
+  };
+  r.onerror = ev => {
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
+      recogOn = analyser ? true : false;  // 声の大きさだけでも送りは続ける
+      micState(analyser ? '息継ぎで送り中（文字認識なし）' : '音声送り不可（タップで送れます）', analyser ? '' : 'off');
+      recogGen++;
+    }
+  };
+  r.onend = () => {
+    if (gen !== recogGen) return;
+    finals = finals + interim; interim = '';
+    if (recogOn) setTimeout(beginRecog, 120);
+  };
+  recog = r;
+  try{ r.start(); }catch(e){ setTimeout(beginRecog, 400); }
+}
+function restartRecog(){
+  if (!recogOn || !SR) return;
+  finals = finals + interim; interim = '';
+  const old = recog; recogGen++;
+  try{ old && old.abort(); }catch(e){}
+  setTimeout(beginRecog, 150);
+}
 function startRecog(){
   if (S.mode !== 'voice') return;
-  if (!SR){ micState('音声送り不可（タップで送れます）', 'off'); return; }
-  recogOn = true; finals = ''; interim = ''; baseline = 0; progress = 0; shown = 0; lastRes = 0; lineVoiceStart = 0;
-  const begin = () => {
-    if (!recogOn) return;
-    recog = new SR();
-    recog.lang = 'ja-JP'; recog.continuous = true; recog.interimResults = true; recog.maxAlternatives = 1;
-    const finalsBefore = finals;
-    recog.onresult = ev => {
-      // 毎回、このセッションで聞き取った全文を組み立て直す（重複を防ぐ）
-      let fin = '', im = '';
-      for (let i = 0; i < ev.results.length; i++){
-        const r = ev.results[i];
-        if (r.isFinal) fin += r[0].transcript; else im += r[0].transcript;
-      }
-      interim = im; finals = finalsBefore + fin;
-      lastHeard = performance.now();
-      $('mic').classList.add('hear'); clearTimeout(micState._t); micState._t = setTimeout(() => $('mic').classList.remove('hear'), 400);
-      evaluate();
-    };
-    recog.onerror = ev => {
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
-        recogOn = false; micState('音声送りが許可されていません（タップで送れます）', 'off');
-      }
-    };
-    recog.onend = () => { finals = finals + interim; interim = ''; if (recogOn) setTimeout(begin, 150); };
-    try{ recog.start(); micState('音声送り', ''); }catch(e){ setTimeout(begin, 400); }
-  };
-  begin();
+  startVAD();
+  finals = ''; interim = ''; baseline = 0; resetLine(); voicedSinceRes = 0; lastVoice = 0;
+  if (!SR && !analyser){ micState('音声送り不可（タップで送れます）', 'off'); return; }
+  recogOn = true;
+  micState(SR ? '音声送り' : '息継ぎで送り中（文字認識なし）', '');
+  if (SR) beginRecog();
 }
 function stopRecog(){
-  recogOn = false; clearTimeout(silenceTimer);
-  try{ recog && recog.stop(); }catch(e){}
-  recog = null; $('mic').hidden = true;
+  recogOn = false; recogGen++;
+  try{ recog && recog.abort(); }catch(e){}
+  recog = null; stopVAD(); $('mic').hidden = true;
 }
 
 /* ---- カメラ ---- */
@@ -573,7 +678,7 @@ function finishRec(){
   $('rmeta').textContent = `${fmt(sec)}　/　${v.videoWidth}×${v.videoHeight}　/　${(lastBlob.size/1048576).toFixed(1)} MB`;
   show('review');
 }
-$('recBtn').onclick = () => (rec && rec.state === 'recording') ? stopRec() : startRec();
+$('recBtn').onclick = () => { if (rec && rec.state === 'recording') stopRec(); else { if (S.mode === 'voice') prepAudio(); startRec(); } };
 
 /* ---- 保存 ---- */
 function fileName(){
