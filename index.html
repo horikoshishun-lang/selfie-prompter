@@ -44,6 +44,14 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   height:0;border-top:2px solid rgba(255,214,10,.0);pointer-events:none}
 #guide.on{border-top-color:rgba(255,214,10,.55)}
 
+/* ---- 横向き：台本はカメラのある側に寄せる ---- */
+body.land #prompter{width:64%;right:auto}
+body.land.camR #prompter{left:auto;right:0}
+body.land.camC #prompter{left:18%}
+#rotate{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.72);z-index:5;text-align:center;padding:24px}
+#rotate b{display:block;font-size:22px;margin-bottom:8px}
+#rotate span{color:var(--mute);font-size:14px;line-height:1.7}
+
 /* ---- 1文ずつ送るモード ---- */
 #lines{position:relative;height:100%;overflow:hidden;
   -webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}
@@ -164,6 +172,7 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
     <button id="lnPrev" aria-label="前の文へ">↑</button>
     <button id="lnNext" aria-label="次の文へ">↓</button>
   </div>
+  <div id="rotate" hidden><div><b id="rotT">iPhoneを横向きにしてください</b><span id="rotS">設定で「横型（16:9）」を選んでいます。縦型で撮る場合は、右下の「設定」→「撮影の向き」で切り替えられます。</span></div></div>
   <div id="count" hidden></div>
   <div id="msg" hidden></div>
   <div class="bottombar">
@@ -190,6 +199,7 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
 <section id="set" class="screen sheet" hidden>
   <header><span></span><h1>設定</h1><button class="link" id="setDone">完了</button></header>
   <div class="settings">
+    <div class="set"><label for="sOrient">撮影の向き</label><select id="sOrient" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="landscape">横型（16:9）</option><option value="portrait">縦型（9:16）</option></select><small>横型のときはiPhoneを横にして撮ります。台本はカメラのある側に寄せて表示されます。</small></div>
     <div class="set"><label for="sMode">台本の送り方</label><select id="sMode" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="voice">声で自動送り</option><option value="tap">タップで送る</option><option value="scroll">一定速度で流す</option></select><small>声で自動送り：言い終わりが近づくと次の文へ進みます（Safariのみ）。うまく進まないときは、画面のどこかをタップすれば次へ進みます。</small></div>
     <div class="set"><label for="sSpeed">流れる速さ</label><output id="oSpeed"></output><input type="range" id="sSpeed" min="0" max="20" step="1"><small>「一定速度で流す」のときだけ使います。0にすると自動では流れません（指でなぞって送ります）。撮影中は右の＋−でも変えられます。</small></div>
     <div class="set"><label for="sFs">文字の大きさ</label><output id="oFs"></output><input type="range" id="sFs" min="18" max="56" step="2"></div>
@@ -246,6 +256,7 @@ const S = {
 };
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 S.mode = store.get('mode', SR ? 'voice' : 'tap');
+S.orient = store.get('orient', 'landscape');
 
 /* ---- 台本: URLの #t=... で受け取れる（Claudeから台本付きリンクを送る用） ---- */
 function fromHash(){
@@ -433,9 +444,11 @@ function stopRecog(){
 let stream = null;
 async function startCamera(){
   if (stream) stream.getTracks().forEach(t => t.stop());
-  const h = S.q === '720' ? 1280 : 1920, w = S.q === '720' ? 720 : 1080;
+  const long = S.q === '720' ? 1280 : 1920, short = S.q === '720' ? 720 : 1080;
+  const land = S.orient === 'landscape';
+  const w = land ? long : short, h = land ? short : long;
   stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30 } },
+    video: { facingMode: 'user', width: { ideal: w }, height: { ideal: h }, aspectRatio: { ideal: w / h }, frameRate: { ideal: 30 } },
     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
   });
   $('video').srcObject = stream;
@@ -453,7 +466,7 @@ $('startBtn').onclick = async () => {
     $('startErr').textContent = 'このブラウザではカメラが使えません。SafariかChromeで開いてください。';
     $('startErr').hidden = false; return;
   }
-  try{ await startCamera(); show('cam'); keepAwake(); }
+  try{ await startCamera(); show('cam'); keepAwake(); checkOrient(); }
   catch(e){
     $('startErr').textContent = 'カメラかマイクの許可がありません。iPhoneの「設定」→ このブラウザ（SafariやChrome）→「カメラ」「マイク」を「許可」にして、もう一度押してください。';
     $('startErr').hidden = false;
@@ -550,7 +563,7 @@ $('saveBtn').onclick = async () => {
   const a = document.createElement('a'); a.href = lastUrl; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
   $('saveHint').textContent = '共有画面が使えなかったので「ファイル」アプリに保存しました。ファイルアプリで動画を開き、左下の共有ボタン →「ビデオを保存」でカメラロールに移せます。';
 };
-$('retakeBtn').onclick = () => { $('rv').removeAttribute('src'); $('rv').load(); show('cam'); sc.scrollTop = 0; };
+$('retakeBtn').onclick = () => { $('rv').removeAttribute('src'); $('rv').load(); show('cam'); sc.scrollTop = 0; checkOrient(); };
 
 /* ---- 台本編集 ---- */
 $('toEdit').onclick = () => { $('ta').value = text; show('edit'); };
@@ -576,9 +589,46 @@ bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q
 if (!SR) $('sMode').querySelector('option[value=voice]').textContent = '声で自動送り（このブラウザは非対応）';
 const qh = $('sQ').onchange; $('sQ').onchange = async () => { qh(); try{ await startCamera(); }catch(e){} };
 $('toSet').onclick = () => { $('sSpeed').value = S.speed; $('oSpeed').textContent = S.speed; show('set'); };
-$('setDone').onclick = () => show('cam');
+$('setDone').onclick = () => { show('cam'); checkOrient(); };
 
-renderScript(); applyLook();
+/* ---- 向きの管理 ---- */
+const isLand = () => window.innerWidth > window.innerHeight;
+function camSide(){
+  const o = typeof window.orientation === 'number' ? window.orientation : null;
+  if (o === 90) return 'camL';   // 左に倒した：カメラは左側
+  if (o === -90) return 'camR';  // 右に倒した：カメラは右側
+  const a = screen.orientation && screen.orientation.angle;
+  if (a === 90) return 'camR';
+  if (a === 270) return 'camL';
+  return 'camC';
+}
+let orientTimer = 0;
+function checkOrient(){
+  document.body.classList.toggle('land', isLand());
+  document.body.classList.remove('camL','camR','camC');
+  if (isLand()) document.body.classList.add(camSide());
+  const want = S.orient === 'landscape';
+  const wrong = want !== isLand();
+  const recording = rec && rec.state === 'recording';
+  $('rotT').textContent = want ? 'iPhoneを横向きにしてください' : 'iPhoneを縦向きにしてください';
+  $('rotS').textContent = want ? '設定で「横型（16:9）」を選んでいます。縦型で撮る場合は「設定」→「撮影の向き」で切り替えられます。'
+                               : '設定で「縦型（9:16）」を選んでいます。横型で撮る場合は「設定」→「撮影の向き」で切り替えられます。';
+  $('rotate').hidden = !wrong || recording;
+  if (!recording) $('recBtn').disabled = wrong;
+  renderLines(true);
+  // 向きが変わったらカメラを取り直して、映像の縦横を合わせる
+  clearTimeout(orientTimer);
+  if (stream && !recording) orientTimer = setTimeout(() => {
+    const v = $('video');
+    if (v.videoWidth && ((v.videoWidth > v.videoHeight) !== isLand())) startCamera().catch(()=>{});
+  }, 500);
+}
+window.addEventListener('resize', checkOrient);
+window.addEventListener('orientationchange', () => setTimeout(checkOrient, 300));
+bind('sOrient','orient');
+const oh = $('sOrient').onchange; $('sOrient').onchange = async () => { oh(); checkOrient(); try{ await startCamera(); }catch(e){} };
+
+renderScript(); applyLook(); checkOrient();
 })();
 </script>
 </body>
