@@ -358,7 +358,7 @@ function paintCur(){
   const note = u.note ? `<span class="nt">${esc(u.note)}</span>` : '';
   el.innerHTML = note + '<span class="done">' + esc(u.text.slice(0, n)) + '</span>' + esc(u.text.slice(n));
 }
-(function loop(){ if (S.mode === 'voice' && recogOn) paintCur(); requestAnimationFrame(loop); })();
+requestAnimationFrame(function loop(){ if (S.mode === 'voice' && recogOn) paintCur(); requestAnimationFrame(loop); });
 function renderLines(jump){
   if (!lineMode()) return;
   const track = $('track');
