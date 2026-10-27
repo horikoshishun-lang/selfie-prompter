@@ -79,6 +79,8 @@ body.pcenter #script{text-align:center}
 #mic i{width:8px;height:8px;border-radius:50%;background:var(--ok)}
 #mic.off i{background:#888}
 #mic.hear i{box-shadow:0 0 0 4px rgba(52,199,89,.35)}
+#lvl{width:42px;height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden;display:inline-block}
+#lvl b{display:block;height:100%;width:0;background:var(--ok);transition:width .08s}
 
 .topbar{position:absolute;right:max(12px,var(--sr));top:calc(var(--st) + 8px);display:flex;gap:8px;z-index:3}
 #timer{font-variant-numeric:tabular-nums;font-weight:700;background:rgba(0,0,0,.6);
@@ -167,7 +169,7 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
   </div>
   <div id="guide"></div>
   <div class="topbar">
-    <div id="mic" class="off" hidden><i></i><span id="micT">音声送り</span></div>
+    <div id="mic" class="off" hidden><i></i><span id="micT">音声送り</span><span id="lvl"><b></b></span></div>
     <div id="pos" hidden></div>
     <div id="timer" hidden><i></i><span id="tt">0:00</span></div>
   </div>
@@ -454,6 +456,7 @@ function lcs(a, b){ // 最長共通部分列の長さ
 
 // 声の大きさで「話している／黙った」を遅れなく判定する
 let actx = null, analyser = null, abuf = null, vsrc = null;
+let lastAlive = 0, vadDead = false;
 let noise = 0.004, voiced = false, lastVoice = 0, vadPrev = 0, lineVoiced = 0, voicedSinceRes = 0;
 let cps = store.get('cps', 6.5);  // 1秒に話す文字数（文ごとに学習）
 function prepAudio(){ // 録画ボタンのタップの中で呼ぶ（iPhoneの決まり）
@@ -478,8 +481,16 @@ function vadTick(now){
   analyser.getFloatTimeDomainData(abuf);
   let sum = 0; for (let i = 0; i < abuf.length; i++) sum += abuf[i] * abuf[i];
   const rms = Math.sqrt(sum / abuf.length);
+  // 取り込みが止まった（ずっと無音のゼロ）を検出 → 立て直し、ダメなら時間だけで送る
+  if (rms > 1e-6) lastAlive = now;
+  else if (now - lastAlive > 1200){
+    if (actx && actx.state !== 'running'){ try{ actx.resume(); }catch(e){} }
+    if (now - lastAlive > 3000) vadDead = true;
+  }
+  if (rms > 1e-6) vadDead = false;
   if (!voiced) noise = noise * 0.985 + Math.min(rms, 0.05) * 0.015; // 黙っている間に周りの音の大きさを覚える
-  const th = Math.max(noise * 2.8, 0.008);
+  const th = Math.max(noise * 2.2, 0.006);
+  const lv = $('lvl').firstChild; if (lv) lv.style.width = Math.min(100, rms / th * 50) + '%';
   if (rms > th){ voiced = true; lastVoice = now; }
   else if (voiced && now - lastVoice > 160) voiced = false;
   if (voiced){ lineVoiced += dt; voicedSinceRes += dt; }
@@ -601,8 +612,9 @@ function autoTick(now){
   if (!u.text){ if (idx < units.length - 1){ idx++; resetLine(); renderLines(false); } return; }
   if (voiced) voicedTotal += dt;
   // 声の大きさが取れているときは、話している間（と息継ぎ0.4秒）だけ時間を進める
-  const vadOK = analyser && voicedTotal > 1.0;
-  const speaking = !vadOK || voiced || now - lastVoice < 400;
+  const vadOK = analyser && !vadDead && voicedTotal > 1.0;
+  // 話している間（と息継ぎ0.4秒）だけ数える。ただし2.5秒黙ったままなら、止まらないよう数えるのを再開
+  const speaking = !vadOK || voiced || now - lastVoice < 400 || now - lastVoice > 2500;
   if (speaking) lineTime += dt;
   const target = u.text.length / acps + 0.2 + (u.note ? 0.8 : 0);  // ト書き付きの文は間のぶん長めに
   const r = lineTime / target;
@@ -629,7 +641,9 @@ function autoTick(now){
 function startAuto(){
   if (S.mode !== 'auto') return;
   startVAD(); voicedTotal = 0; lastVoice = 0; resetLine(); autoOn = true;
+  lastAlive = performance.now(); vadDead = false;
   micState(analyser ? '自動送り' : '自動送り（時間のみ）', '');
+  $('lvl').hidden = !analyser;
 }
 function stopAuto(){ autoOn = false; paused = false; stopVAD(); }
 
