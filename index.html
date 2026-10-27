@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="自撮りプロンプター">
+<meta name="theme-color" content="#0d0f12">
+<title>自撮りプロンプター</title>
+<style>
+:root{
+  --bg:#0d0f12; --panel:#171a20; --line:#2a2f38; --fg:#f3f4f6; --mute:#9aa1ad;
+  --rec:#ff3b30; --accent:#ffd60a; --ok:#34c759;
+  --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px);
+  --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN",system-ui,sans-serif;
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+[hidden]{display:none!important}
+.screen{position:fixed;inset:0}
+
+/* ---------- camera ---------- */
+#cam{background:#000}
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#prompter{position:absolute;left:0;right:0;top:0;
+  padding:calc(var(--st) + 10px) max(14px,var(--sr)) 0 max(14px,var(--sl));
+  height:var(--ph,42%);background:linear-gradient(rgba(0,0,0,var(--pbg,.55)) 75%,rgba(0,0,0,0));
+  overflow:hidden}
+#scroller{height:100%;overflow-y:scroll;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  -webkit-mask-image:linear-gradient(#000 82%,transparent);mask-image:linear-gradient(#000 82%,transparent)}
+#scroller::-webkit-scrollbar{display:none}
+#script{font-size:var(--fs,30px);line-height:1.55;font-weight:700;white-space:pre-wrap;
+  text-shadow:0 1px 3px rgba(0,0,0,.8);padding-bottom:60vh;letter-spacing:.02em}
+#script.mirror{transform:scaleX(-1)}
+#script .note{color:var(--accent);font-weight:600;font-size:.72em}
+#guide{position:absolute;left:0;right:0;top:calc(var(--st) + 10px + var(--fs,30px)*1.55*var(--gl,1.0));
+  height:0;border-top:2px solid rgba(255,214,10,.0);pointer-events:none}
+#guide.on{border-top-color:rgba(255,214,10,.55)}
+
+.topbar{position:absolute;right:max(12px,var(--sr));top:calc(var(--st) + 8px);display:flex;gap:8px;z-index:3}
+#timer{font-variant-numeric:tabular-nums;font-weight:700;background:rgba(0,0,0,.6);
+  padding:4px 10px;border-radius:999px;font-size:15px;display:flex;align-items:center;gap:6px}
+#timer i{width:9px;height:9px;border-radius:50%;background:var(--rec);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.2}}
+
+.bottombar{position:absolute;left:0;right:0;bottom:0;
+  padding:14px max(16px,var(--sr)) calc(var(--sb) + 18px) max(16px,var(--sl));
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+  background:linear-gradient(transparent,rgba(0,0,0,.55))}
+.side{display:flex;gap:10px}
+.side.r{justify-content:flex-end}
+.chip{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:#e5e7eb;
+  min-width:52px;padding:6px 4px;border-radius:12px;background:rgba(0,0,0,.45)}
+.chip svg{width:24px;height:24px}
+#recBtn{width:78px;height:78px;border-radius:50%;border:4px solid #fff;display:grid;place-items:center}
+#recBtn span{width:58px;height:58px;border-radius:50%;background:var(--rec);transition:all .2s}
+#recBtn.on span{width:30px;height:30px;border-radius:7px}
+#recBtn:disabled{opacity:.4}
+
+.speedpad{position:absolute;right:max(10px,var(--sr));top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:8px;z-index:3}
+.speedpad button{width:46px;height:46px;border-radius:50%;background:rgba(0,0,0,.5);font-size:22px;font-weight:700}
+.speedpad output{text-align:center;font-size:12px;font-variant-numeric:tabular-nums;
+  background:rgba(0,0,0,.5);border-radius:8px;padding:3px 0}
+
+#count{position:absolute;inset:0;display:grid;place-items:center;font-size:140px;font-weight:800;
+  text-shadow:0 4px 20px rgba(0,0,0,.6);pointer-events:none}
+#msg{position:absolute;left:50%;bottom:calc(var(--sb) + 120px);transform:translateX(-50%);
+  background:rgba(0,0,0,.75);padding:10px 16px;border-radius:12px;font-size:14px;max-width:90%;text-align:center}
+
+/* ---------- sheets ---------- */
+.sheet{background:var(--bg);display:flex;flex-direction:column;
+  padding:calc(var(--st) + 10px) max(16px,var(--sr)) calc(var(--sb) + 14px) max(16px,var(--sl))}
+.sheet header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px}
+.sheet h1{font-size:18px;margin:0}
+.link{color:var(--accent);font-weight:600;padding:6px 2px}
+textarea{flex:1;width:100%;resize:none;background:var(--panel);color:var(--fg);border:1px solid var(--line);
+  border-radius:14px;padding:14px;font-size:17px;line-height:1.6;font-family:inherit;-webkit-user-select:text;user-select:text}
+textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.hint{color:var(--mute);font-size:12.5px;line-height:1.6;margin:10px 2px}
+.primary{width:100%;padding:16px;border-radius:14px;background:var(--fg);color:#111;font-weight:700;font-size:17px}
+.secondary{width:100%;padding:14px;border-radius:14px;background:var(--panel);border:1px solid var(--line);font-weight:600}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+
+.settings{display:flex;flex-direction:column;gap:6px;overflow-y:auto;flex:1}
+.set{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+  display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center}
+.set label{font-weight:600;font-size:15px}
+.set small{grid-column:1/-1;color:var(--mute);font-size:12px}
+.set input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+.set output{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:700}
+.sw{appearance:none;-webkit-appearance:none;width:50px;height:30px;border-radius:999px;background:#3a3f48;position:relative;transition:.2s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw:checked{background:var(--ok)}
+.sw:checked::after{left:23px}
+
+#review video{flex:1;min-height:0;width:100%;object-fit:contain;background:#000;border-radius:14px}
+.meta{color:var(--mute);font-size:13px;text-align:center;margin:8px 0 12px;font-variant-numeric:tabular-nums}
+.stack{display:flex;flex-direction:column;gap:10px}
+
+#start{justify-content:center;text-align:center;gap:14px}
+#start h1{font-size:24px}
+#start p{color:var(--mute);line-height:1.7;margin:0 auto;max-width:30em;font-size:14px}
+@media (prefers-reduced-motion:reduce){#timer i{animation:none}}
+</style>
+</head>
+<body>
+
+<!-- 起動画面 -->
+<section id="start" class="screen sheet">
+  <h1>自撮りプロンプター</h1>
+  <p>インカメラで自分を見ながら、上に台本を流して撮影します。<br>最初にカメラとマイクの許可を聞かれたら「許可」を押してください。</p>
+  <div style="margin-top:10px"><button class="primary" id="startBtn">カメラを起動</button></div>
+  <p id="startErr" style="color:#ff8a80" hidden></p>
+</section>
+
+<!-- 撮影画面 -->
+<section id="cam" class="screen" hidden>
+  <video id="video" playsinline muted autoplay></video>
+  <div id="prompter"><div id="scroller"><div id="script"></div></div></div>
+  <div id="guide"></div>
+  <div class="topbar"><div id="timer" hidden><i></i><span id="tt">0:00</span></div></div>
+  <div class="speedpad">
+    <button id="spUp" aria-label="速く">＋</button>
+    <output id="spOut">5</output>
+    <button id="spDn" aria-label="遅く">−</button>
+  </div>
+  <div id="count" hidden></div>
+  <div id="msg" hidden></div>
+  <div class="bottombar">
+    <div class="side">
+      <button class="chip" id="toEdit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>台本</button>
+      <button class="chip" id="toTop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>頭出し</button>
+    </div>
+    <button id="recBtn" aria-label="録画"><span></span></button>
+    <div class="side r">
+      <button class="chip" id="toSet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>設定</button>
+    </div>
+  </div>
+</section>
+
+<!-- 台本編集 -->
+<section id="edit" class="screen sheet" hidden>
+  <header><button class="link" id="editCancel">戻る</button><h1>台本</h1><button class="link" id="editPaste">貼り付け</button></header>
+  <textarea id="ta" placeholder="ここに台本を貼り付けます"></textarea>
+  <p class="hint">（ ）や【 】で囲んだ部分は「ト書き」として黄色の小さい文字で表示されます。空行で段落を分けると読みやすくなります。</p>
+  <div class="row"><button class="secondary" id="editClear">全部消す</button><button class="primary" id="editDone">この台本で撮る</button></div>
+</section>
+
+<!-- 設定 -->
+<section id="set" class="screen sheet" hidden>
+  <header><span></span><h1>設定</h1><button class="link" id="setDone">完了</button></header>
+  <div class="settings">
+    <div class="set"><label for="sSpeed">流れる速さ</label><output id="oSpeed"></output><input type="range" id="sSpeed" min="0" max="20" step="1"><small>0にすると自動では流れません（指でなぞって送ります）。撮影中は右の＋−でも変えられます。</small></div>
+    <div class="set"><label for="sFs">文字の大きさ</label><output id="oFs"></output><input type="range" id="sFs" min="18" max="56" step="2"></div>
+    <div class="set"><label for="sPh">台本エリアの高さ</label><output id="oPh"></output><input type="range" id="sPh" min="20" max="70" step="2"><small>低くするほど、読んでいる文字がカメラ（画面上端）に近くなり、目線が自然になります。</small></div>
+    <div class="set"><label for="sBg">台本の背景の濃さ</label><output id="oBg"></output><input type="range" id="sBg" min="0" max="90" step="5"></div>
+    <div class="set"><label for="sCd">録画前の3秒カウント</label><input type="checkbox" class="sw" id="sCd"></div>
+    <div class="set"><label for="sGuide">読む位置のガイド線</label><input type="checkbox" class="sw" id="sGuide"><small>この線の高さの文字を読むと、目線がカメラに近くなります。</small></div>
+    <div class="set"><label for="sMirror">台本を左右反転</label><input type="checkbox" class="sw" id="sMirror"><small>ハーフミラー付きのプロンプター機材に載せるときだけオン。</small></div>
+    <div class="set"><label for="sQ">画質</label><select id="sQ" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="1080">高画質（1080p）</option><option value="720">軽め（720p）</option></select><small>変えたらカメラが再起動します。</small></div>
+  </div>
+</section>
+
+<!-- 撮影後の確認 -->
+<section id="review" class="screen sheet" hidden>
+  <header><span></span><h1>確認</h1><span></span></header>
+  <video id="rv" playsinline controls></video>
+  <div class="meta" id="rmeta"></div>
+  <div class="stack">
+    <button class="primary" id="saveBtn">カメラロールに保存</button>
+    <button class="secondary" id="retakeBtn">撮り直す（この動画は消えます）</button>
+  </div>
+  <p class="hint" id="saveHint">「カメラロールに保存」を押すと共有画面が出ます。その中の「ビデオを保存」を押してください。</p>
+</section>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('sp_'+k); return v===null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem('sp_'+k, JSON.stringify(v)); }catch(e){} }
+};
+const SAMPLE = `【サンプル台本です。左下の「台本」から差し替えてください】
+
+こんにちは、映像ディレクターの堀越です。
+
+今日は、スマホ1台で
+「伝わる自撮り動画」を撮るコツを
+ひとつだけお伝えします。
+
+（ひと呼吸）
+
+それは、レンズを見ることです。
+
+画面の自分ではなく、
+レンズの先にいる、たった1人に話しかける。
+
+これだけで、見る人の受け取り方が変わります。
+
+よかったら、保存して試してみてください。`;
+
+const S = {
+  speed: store.get('speed', 5), fs: store.get('fs', 30), ph: store.get('ph', 40), bg: store.get('bg', 55),
+  cd: store.get('cd', true), guide: store.get('guide', true), mirror: store.get('mirror', false), q: store.get('q', '1080')
+};
+
+/* ---- 台本: URLの #t=... で受け取れる（Claudeから台本付きリンクを送る用） ---- */
+function fromHash(){
+  const h = location.hash;
+  if (!h.startsWith('#t=')) return null;
+  try{
+    const b = h.slice(3).replace(/-/g,'+').replace(/_/g,'/');
+    const bin = atob(b + '==='.slice((b.length+3)%4));
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }catch(e){ return null; }
+}
+let text = fromHash() ?? store.get('text', SAMPLE);
+if (location.hash.startsWith('#t=')) { store.set('text', text); history.replaceState(null,'',location.pathname); }
+
+function esc(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function renderScript(){
+  $('script').innerHTML = esc(text).replace(/(【[^】]*】|（[^）]*）|\([^)]*\))/g, '<span class="note">$1</span>');
+}
+function applyLook(){
+  const r = document.documentElement.style;
+  r.setProperty('--fs', S.fs+'px'); r.setProperty('--ph', S.ph+'%'); r.setProperty('--pbg', S.bg/100);
+  $('script').classList.toggle('mirror', S.mirror);
+  $('guide').classList.toggle('on', S.guide);
+  $('spOut').textContent = S.speed;
+}
+
+/* ---- カメラ ---- */
+let stream = null;
+async function startCamera(){
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const h = S.q === '720' ? 1280 : 1920, w = S.q === '720' ? 720 : 1080;
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: 30 } },
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+  });
+  $('video').srcObject = stream;
+  await $('video').play().catch(()=>{});
+}
+let wake = null;
+async function keepAwake(){ try{ wake = await navigator.wakeLock?.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('cam').hidden) keepAwake(); });
+
+function show(id){ ['start','cam','edit','set','review'].forEach(s => $(s).hidden = (s !== id)); }
+function toast(t, ms=2500){ const m=$('msg'); m.textContent=t; m.hidden=false; clearTimeout(toast._t); toast._t=setTimeout(()=>m.hidden=true, ms); }
+
+$('startBtn').onclick = async () => {
+  if (!navigator.mediaDevices?.getUserMedia){
+    $('startErr').textContent = 'このブラウザではカメラが使えません。SafariかChromeで開いてください。';
+    $('startErr').hidden = false; return;
+  }
+  try{ await startCamera(); show('cam'); keepAwake(); }
+  catch(e){
+    $('startErr').textContent = 'カメラかマイクの許可がありません。iPhoneの「設定」→ このブラウザ（SafariやChrome）→「カメラ」「マイク」を「許可」にして、もう一度押してください。';
+    $('startErr').hidden = false;
+  }
+};
+
+/* ---- 自動スクロール ---- */
+const sc = $('scroller');
+let scrolling = false, lastT = 0, acc = 0, holdUntil = 0;
+function pxPerSec(){ return S.speed * S.fs * 0.11; } // 文字サイズに比例
+function tick(t){
+  if (scrolling){
+    const dt = lastT ? (t - lastT)/1000 : 0;
+    if (t > holdUntil){ acc += pxPerSec()*dt; const whole = Math.floor(acc); if (whole){ sc.scrollTop += whole; acc -= whole; } }
+  }
+  lastT = t; requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+// 指で触ったら1.5秒だけ自動送りを止める（位置合わせしやすく）
+['touchstart','wheel'].forEach(ev => sc.addEventListener(ev, () => { holdUntil = performance.now() + 1500; }, {passive:true}));
+sc.addEventListener('touchmove', () => { holdUntil = performance.now() + 1500; }, {passive:true});
+
+function setSpeed(v){ S.speed = Math.max(0, Math.min(20, v)); store.set('speed', S.speed); applyLook(); }
+$('spUp').onclick = () => setSpeed(S.speed + 1);
+$('spDn').onclick = () => setSpeed(S.speed - 1);
+$('toTop').onclick = () => { sc.scrollTop = 0; acc = 0; };
+
+/* ---- 録画 ---- */
+let rec = null, chunks = [], t0 = 0, timerId = 0, lastBlob = null, lastUrl = null, mime = '';
+function pickMime(){
+  const c = ['video/mp4;codecs=avc1,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm'];
+  return c.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported?.(m)) || '';
+}
+function fmt(s){ s = Math.floor(s); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
+
+async function countdown(){
+  if (!S.cd) return;
+  const c = $('count'); c.hidden = false;
+  for (const n of [3,2,1]){ c.textContent = n; await new Promise(r => setTimeout(r, 850)); }
+  c.hidden = true;
+}
+async function startRec(){
+  if (!window.MediaRecorder){ toast('このブラウザは録画に対応していません。iOSを最新にしてください。', 4000); return; }
+  $('recBtn').disabled = true;
+  sc.scrollTop = 0; acc = 0;
+  await countdown();
+  mime = pickMime();
+  chunks = [];
+  const bps = S.q === '720' ? 5_000_000 : 10_000_000;
+  try{ rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: bps, audioBitsPerSecond: 192000 } : undefined); }
+  catch(e){ rec = new MediaRecorder(stream); }
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = finishRec;
+  rec.start(1000);
+  t0 = performance.now(); holdUntil = performance.now() + 600; scrolling = true;
+  $('recBtn').classList.add('on'); $('recBtn').disabled = false;
+  $('timer').hidden = false; $('tt').textContent = '0:00';
+  timerId = setInterval(() => $('tt').textContent = fmt((performance.now()-t0)/1000), 250);
+  $('toEdit').disabled = $('toSet').disabled = true;
+}
+function stopRec(){ if (rec && rec.state !== 'inactive') rec.stop(); }
+function finishRec(){
+  scrolling = false; clearInterval(timerId);
+  $('recBtn').classList.remove('on'); $('timer').hidden = true;
+  $('toEdit').disabled = $('toSet').disabled = false;
+  const type = (rec.mimeType || mime || 'video/mp4').split(';')[0];
+  lastBlob = new Blob(chunks, { type });
+  if (lastUrl) URL.revokeObjectURL(lastUrl);
+  lastUrl = URL.createObjectURL(lastBlob);
+  $('rv').src = lastUrl;
+  const sec = (performance.now()-t0)/1000;
+  $('rmeta').textContent = `${fmt(sec)}　/　${(lastBlob.size/1048576).toFixed(1)} MB`;
+  show('review');
+}
+$('recBtn').onclick = () => (rec && rec.state === 'recording') ? stopRec() : startRec();
+
+/* ---- 保存 ---- */
+function fileName(){
+  const d = new Date(), p = n => String(n).padStart(2,'0');
+  const ext = lastBlob.type.includes('webm') ? 'webm' : 'mp4';
+  return `selfie_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+}
+$('saveBtn').onclick = async () => {
+  if (!lastBlob) return;
+  const file = new File([lastBlob], fileName(), { type: lastBlob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })){
+    try{ await navigator.share({ files: [file] }); return; }
+    catch(e){ if (e.name === 'AbortError') return; }
+  }
+  // 共有画面が使えない場合はダウンロード（「ファイル」アプリに入る）
+  const a = document.createElement('a'); a.href = lastUrl; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+  $('saveHint').textContent = '共有画面が使えなかったので「ファイル」アプリに保存しました。ファイルアプリで動画を開き、左下の共有ボタン →「ビデオを保存」でカメラロールに移せます。';
+};
+$('retakeBtn').onclick = () => { $('rv').removeAttribute('src'); $('rv').load(); show('cam'); sc.scrollTop = 0; };
+
+/* ---- 台本編集 ---- */
+$('toEdit').onclick = () => { $('ta').value = text; show('edit'); };
+$('editCancel').onclick = () => show('cam');
+$('editClear').onclick = () => { $('ta').value = ''; $('ta').focus(); };
+$('editPaste').onclick = async () => {
+  try{ const t = await navigator.clipboard.readText(); if (t) $('ta').value = t; }
+  catch(e){ $('ta').focus(); toast('長押しして「ペースト」を選んでください'); }
+};
+$('editDone').onclick = () => { text = $('ta').value || ''; store.set('text', text); renderScript(); sc.scrollTop = 0; show('cam'); };
+
+/* ---- 設定 ---- */
+const bind = (id, key, out, unit='') => {
+  const el = $(id);
+  if (el.type === 'checkbox'){ el.checked = S[key]; el.onchange = () => { S[key] = el.checked; store.set(key, S[key]); applyLook(); }; return; }
+  el.value = S[key];
+  const upd = () => { if (out) $(out).textContent = el.value + unit; };
+  upd();
+  el.oninput = () => { S[key] = el.tagName==='SELECT' ? el.value : +el.value; store.set(key, S[key]); upd(); applyLook(); };
+};
+bind('sSpeed','speed','oSpeed'); bind('sFs','fs','oFs','px'); bind('sPh','ph','oPh','%'); bind('sBg','bg','oBg','%');
+bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q');
+$('sQ').onchange = async () => { try{ await startCamera(); }catch(e){} };
+$('toSet').onclick = () => { $('sSpeed').value = S.speed; $('oSpeed').textContent = S.speed; show('set'); };
+$('setDone').onclick = () => show('cam');
+
+renderScript(); applyLook();
+})();
+</script>
+</body>
+</html>
