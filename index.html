@@ -52,6 +52,12 @@ body.land.camC #prompter{left:18%}
 #rotate b{display:block;font-size:22px;margin-bottom:8px}
 #rotate span{color:var(--mute);font-size:14px;line-height:1.7}
 
+/* ---- 真ん中に大きく ---- */
+body.pcenter #prompter{left:0!important;right:0!important;width:auto!important;padding-left:max(5%,var(--sl));padding-right:max(5%,var(--sr))}
+body.pcenter .u{text-align:center}
+body.pcenter .u.cur::before{display:none}
+body.pcenter #script{text-align:center}
+
 /* ---- 1文ずつ送るモード ---- */
 #lines{position:relative;height:100%;overflow:hidden;
   -webkit-mask-image:linear-gradient(#000 80%,transparent);mask-image:linear-gradient(#000 80%,transparent)}
@@ -202,8 +208,9 @@ textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
     <div class="set"><label for="sOrient">撮影の向き</label><select id="sOrient" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="landscape">横型（16:9）</option><option value="portrait">縦型（9:16）</option></select><small>横型のときはiPhoneを横にして撮ります。台本はカメラのある側に寄せて表示されます。</small></div>
     <div class="set"><label for="sMode">台本の送り方</label><select id="sMode" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="voice">声で自動送り</option><option value="tap">タップで送る</option><option value="scroll">一定速度で流す</option></select><small>声で自動送り：言い終わりが近づくと次の文へ進みます（Safariのみ）。うまく進まないときは、画面のどこかをタップすれば次へ進みます。</small></div>
     <div class="set"><label for="sSpeed">流れる速さ</label><output id="oSpeed"></output><input type="range" id="sSpeed" min="0" max="20" step="1"><small>「一定速度で流す」のときだけ使います。0にすると自動では流れません（指でなぞって送ります）。撮影中は右の＋−でも変えられます。</small></div>
-    <div class="set"><label for="sFs">文字の大きさ</label><output id="oFs"></output><input type="range" id="sFs" min="18" max="56" step="2"></div>
-    <div class="set"><label for="sPh">台本エリアの高さ</label><output id="oPh"></output><input type="range" id="sPh" min="20" max="70" step="2"><small>低くするほど、読んでいる文字がカメラ（画面上端）に近くなり、目線が自然になります。</small></div>
+    <div class="set"><label for="sPos">台本の位置</label><select id="sPos" style="background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px"><option value="center">真ん中に大きく</option><option value="cam">カメラ側に寄せる</option></select><small>真ん中：読みやすさ優先。カメラ側：目線をレンズに近づけたいとき（横向きのときに効きます）。</small></div>
+    <div class="set"><label for="sFs">文字の大きさ</label><output id="oFs"></output><input type="range" id="sFs" min="24" max="80" step="2"></div>
+    <div class="set"><label for="sPh">台本エリアの高さ</label><output id="oPh"></output><input type="range" id="sPh" min="30" max="85" step="2"><small>低くするほど、読んでいる文字がカメラ（画面上端）に近くなり、目線が自然になります。</small></div>
     <div class="set"><label for="sBg">台本の背景の濃さ</label><output id="oBg"></output><input type="range" id="sBg" min="0" max="90" step="5"></div>
     <div class="set"><label for="sCd">録画前の3秒カウント</label><input type="checkbox" class="sw" id="sCd"></div>
     <div class="set"><label for="sGuide">読む位置のガイド線</label><input type="checkbox" class="sw" id="sGuide"><small>この線の高さの文字を読むと、目線がカメラに近くなります。</small></div>
@@ -251,12 +258,13 @@ const SAMPLE = `【サンプル台本です。左下の「台本」から差し�
 よかったら、保存して試してみてください。`;
 
 const S = {
-  speed: store.get('speed', 5), fs: store.get('fs', 30), ph: store.get('ph', 40), bg: store.get('bg', 55),
+  speed: store.get('speed', 5), fs: store.get('fs2', 44), ph: store.get('ph2', 62), bg: store.get('bg', 55),
   cd: store.get('cd', true), guide: store.get('guide', true), mirror: store.get('mirror', false), q: store.get('q', '1080')
 };
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 S.mode = store.get('mode', SR ? 'voice' : 'tap');
 S.orient = store.get('orient', 'landscape');
+S.pos = store.get('pos', 'center');
 
 /* ---- 台本: URLの #t=... で受け取れる（Claudeから台本付きリンクを送る用） ---- */
 function fromHash(){
@@ -285,6 +293,7 @@ function applyLook(){
   $('script').classList.toggle('mirror', S.mirror);
   $('lines').classList.toggle('mirror', S.mirror);
   $('guide').classList.toggle('on', S.guide && !lineMode());
+  document.body.classList.toggle('pcenter', S.pos === 'center');
   $('spOut').textContent = S.speed;
   $('scroller').hidden = lineMode(); $('lines').hidden = !lineMode();
   $('padScroll').hidden = lineMode(); $('padLine').hidden = !lineMode();
@@ -584,7 +593,8 @@ const bind = (id, key, out, unit='') => {
   upd();
   el.oninput = el.onchange = () => { S[key] = el.tagName==='SELECT' ? el.value : +el.value; store.set(key, S[key]); upd(); applyLook(); };
 };
-bind('sSpeed','speed','oSpeed'); bind('sFs','fs','oFs','px'); bind('sPh','ph','oPh','%'); bind('sBg','bg','oBg','%');
+bind('sSpeed','speed','oSpeed'); bind('sFs','fs','oFs','px'); bind('sPh','ph','oPh','%'); bind('sPos','pos');
+$('sFs').addEventListener('input', () => store.set('fs2', S.fs)); $('sPh').addEventListener('input', () => store.set('ph2', S.ph)); bind('sBg','bg','oBg','%');
 bind('sCd','cd'); bind('sGuide','guide'); bind('sMirror','mirror'); bind('sQ','q'); bind('sMode','mode');
 if (!SR) $('sMode').querySelector('option[value=voice]').textContent = '声で自動送り（このブラウザは非対応）';
 const qh = $('sQ').onchange; $('sQ').onchange = async () => { qh(); try{ await startCamera(); }catch(e){} };
