@@ -363,7 +363,7 @@ function paintCur(now){
 }
 requestAnimationFrame(function loop(now){
   if (S.mode === 'voice' && recogOn){ vadTick(now); watchdog(now); decide(now); paintCur(now); }
-  else if (S.mode === 'auto' && autoOn){ vadTick(now); autoTick(now); }
+  else if (S.mode === 'auto' && autoOn){ vadTick(now); if (paused) autoPrev = now; else autoTick(now); }
   requestAnimationFrame(loop);
 });
 function renderLines(jump){
@@ -397,9 +397,23 @@ $('lnPrev').onclick = e => { e.stopPropagation(); go(idx - 1); };
 $('cam').addEventListener('click', e => {
   if (!lineMode() || $('cam').hidden) return;
   if (e.target.closest('button, .bottombar, .speedpad, .topbar')) return;
+  if (pressFired){ pressFired = false; return; }
+  if (paused){ setPaused(false); return; }
   go(idx + 1);
 });
 
+// 長押し → 一時停止（自動送り）。一時停止中のタップ → 再開
+let paused = false, pressTimer = 0, pressFired = false;
+function setPaused(v){
+  paused = v;
+  if (autoOn) micState(v ? '一時停止中（タップで再開）' : (analyser ? '自動送り' : '自動送り（時間のみ）'), v ? 'off' : '');
+}
+$('cam').addEventListener('touchstart', e => {
+  pressFired = false; clearTimeout(pressTimer);
+  if (!autoOn || e.target.closest('button, .bottombar, .speedpad')) return;
+  pressTimer = setTimeout(() => { pressFired = true; setPaused(true); }, 550);
+}, {passive:true});
+['touchend','touchmove','touchcancel'].forEach(ev => $('cam').addEventListener(ev, () => clearTimeout(pressTimer), {passive:true}));
 // 下にスワイプ → 1つ戻る／上にスワイプ → 1つ進む
 let tsY = null, tsX = null;
 $('cam').addEventListener('touchstart', e => { const t = e.touches[0]; tsY = t.clientY; tsX = t.clientX; }, {passive:true});
@@ -407,7 +421,11 @@ $('cam').addEventListener('touchend', e => {
   if (tsY === null || !lineMode()) return;
   const t = e.changedTouches[0], dy = t.clientY - tsY, dx = t.clientX - tsX; tsY = null;
   if (Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.5 && !e.target.closest('.bottombar, .speedpad')){
-    go(dy > 0 ? idx - 1 : idx + 1);
+    if (dy > 0){
+      const u = units[idx], r = u && u.text ? lineTime / (u.text.length / acps + 0.2) : 0;
+      if (S.mode === 'auto' && autoOn && r > 0.25){ resetLine(); renderLines(false); toast('この文の頭から', 900); }
+      else go(idx - 1);
+    } else go(idx + 1);
   }
 }, {passive:true});
 // Bluetoothのページめくりリモコン・キーボード
@@ -611,7 +629,7 @@ function startAuto(){
   startVAD(); voicedTotal = 0; lastVoice = 0; resetLine(); autoOn = true;
   micState(analyser ? '自動送り' : '自動送り（時間のみ）', '');
 }
-function stopAuto(){ autoOn = false; stopVAD(); }
+function stopAuto(){ autoOn = false; paused = false; stopVAD(); }
 
 function startRecog(){
   if (S.mode !== 'voice') return;
