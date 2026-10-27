@@ -20,7 +20,9 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
   font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN",system-ui,sans-serif;
-  overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+*{touch-action:manipulation}
+#scroller{touch-action:pan-y}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 [hidden]{display:none!important}
 .screen{position:fixed;inset:0}
@@ -834,6 +836,22 @@ window.addEventListener('resize', checkOrient);
 window.addEventListener('orientationchange', () => setTimeout(checkOrient, 300));
 bind('sOrient','orient');
 const oh = $('sOrient').onchange; $('sOrient').onchange = async () => { oh(); checkOrient(); try{ await startCamera(); }catch(e){} };
+
+// iPhoneのダブルタップ拡大・ピンチ拡大を止める（ボタン連打で画面が大きくならないように）
+['gesturestart','gesturechange','gestureend'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), {passive:false}));
+document.addEventListener('dblclick', e => e.preventDefault(), {passive:false});
+let lastTouchEnd = 0, tStartX = 0, tStartY = 0;
+document.addEventListener('touchstart', e => { const t = e.touches[0]; tStartX = t.clientX; tStartY = t.clientY; }, {passive:true});
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 350 && !e.target.closest('textarea, input, select, video')){
+    e.preventDefault();  // 拡大を止める
+    const t = e.changedTouches[0];
+    // 指が動いていない「タップ」なら、止めたぶんのタップをこちらで実行（連打も効くように）
+    if (Math.abs(t.clientX - tStartX) < 12 && Math.abs(t.clientY - tStartY) < 12) e.target.click();
+  }
+  lastTouchEnd = now;
+}, {passive:false});
 
 renderScript(); applyLook(); checkOrient();
 })();
